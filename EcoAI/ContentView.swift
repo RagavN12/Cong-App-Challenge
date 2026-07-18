@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var chatStore: ChatStore
+    let user: AuthenticatedUser?
 
     @State private var selectedChatID: ChatThread.ID?
     @State private var draft = ""
@@ -18,12 +19,14 @@ struct ContentView: View {
 
     init(
         chatStore: ChatStore,
+        user: AuthenticatedUser? = nil,
         appTheme: Binding<AppTheme> = .constant(.system),
         showChatHistory: Binding<Bool> = .constant(true),
         showEnergyUsage: Binding<Bool> = .constant(true),
         onLogout: @escaping () -> Void = {}
     ) {
         self.chatStore = chatStore
+        self.user = user
         _appTheme = appTheme
         _showChatHistory = showChatHistory
         _showEnergyUsage = showEnergyUsage
@@ -34,6 +37,7 @@ struct ContentView: View {
         HSplitView {
             if showChatHistory {
                 LeftSidebar(
+                    user: user,
                     chats: chatStore.chats,
                     selectedChatID: $selectedChatID,
                     onRequestDelete: { chatPendingDeletion = $0 },
@@ -87,6 +91,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(
+                user: user,
                 appTheme: $appTheme,
                 showChatHistory: $showChatHistory,
                 showEnergyUsage: $showEnergyUsage,
@@ -135,6 +140,7 @@ struct ContentView: View {
 }
 
 private struct LeftSidebar: View {
+    let user: AuthenticatedUser?
     let chats: [ChatThread]
     @Binding var selectedChatID: ChatThread.ID?
     let onRequestDelete: (ChatThread) -> Void
@@ -154,28 +160,16 @@ private struct LeftSidebar: View {
                 )
             } label: {
                 HStack(spacing: 10) {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 36, height: 36)
-                        .overlay(
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white)
-                        )
+                    AccountAvatar(user: user, size: 36)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Rishit Varshney")
+                        Text(user?.displayName ?? "EcoAI User")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("View account")
+                        Text(user?.email ?? "View account")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
 
                     Spacer()
@@ -271,6 +265,50 @@ private struct LeftSidebar: View {
         chats.reduce(into: [String]()) { result, chat in
             if !result.contains(chat.section) { result.append(chat.section) }
         }
+    }
+}
+
+struct AccountAvatar: View {
+    let user: AuthenticatedUser?
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if let pictureURL = user?.pictureURL {
+                AsyncImage(url: pictureURL) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    initials
+                }
+            } else {
+                initials
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityLabel(user?.displayName ?? "Account")
+    }
+
+    private var initials: some View {
+        Text(initialsText)
+            .font(.system(size: size * 0.34, weight: .semibold))
+            .foregroundStyle(.white)
+    }
+
+    private var initialsText: String {
+        let words = (user?.displayName ?? "EcoAI User")
+            .split(whereSeparator: \.isWhitespace)
+        let characters = words.prefix(2).compactMap(\.first)
+        return String(characters).uppercased()
     }
 }
 
@@ -487,7 +525,10 @@ struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView(
             chatStore: ChatStore(
-                accessPoint: CloudflareAccessPoint(configuration: .preview),
+                accessPoint: CloudflareAccessPoint(
+                    configuration: .preview,
+                    tokenProvider: PreviewAccessTokenProvider()
+                ),
                 repository: ChatLocalRepository(
                     storageURL: FileManager.default.temporaryDirectory
                         .appendingPathComponent("ecoai-preview-chat-history.json")

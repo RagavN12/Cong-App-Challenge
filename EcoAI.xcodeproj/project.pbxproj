@@ -6,13 +6,30 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8167F73F300C2A9B0006FB2B /* Auth0 in Frameworks */ = {isa = PBXBuildFile; productRef = 8167F73E300C2A9B0006FB2B /* Auth0 */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		90350E57300C044D002CCA28 /* EcoAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EcoAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A071801D300D3E8E00A01001 /* Exceptions for "EcoAI" folder in "EcoAI" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 90350E56300C044D002CCA28 /* EcoAI */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		90350E59300C044D002CCA28 /* EcoAI */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A071801D300D3E8E00A01001 /* Exceptions for "EcoAI" folder in "EcoAI" target */,
+			);
 			path = EcoAI;
 			sourceTree = "<group>";
 		};
@@ -28,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8167F73F300C2A9B0006FB2B /* Auth0 in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -68,10 +86,10 @@
 			);
 			fileSystemSynchronizedGroups = (
 				90350E59300C044D002CCA28 /* EcoAI */,
-				90350E6D300C115B002CCA28 /* backend */,
 			);
 			name = EcoAI;
 			packageProductDependencies = (
+				8167F73E300C2A9B0006FB2B /* Auth0 */,
 			);
 			productName = EcoAI;
 			productReference = 90350E57300C044D002CCA28 /* EcoAI.app */;
@@ -101,6 +119,9 @@
 			);
 			mainGroup = 90350E4E300C044C002CCA28;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8167F73D300C2A9B0006FB2B /* XCRemoteSwiftPackageReference "Auth0" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 90350E58300C044D002CCA28 /* Products */;
 			projectDirPath = "";
@@ -259,9 +280,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EcoAI/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -294,9 +317,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EcoAI/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -342,6 +367,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8167F73D300C2A9B0006FB2B /* XCRemoteSwiftPackageReference "Auth0" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/auth0/Auth0.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8167F73E300C2A9B0006FB2B /* Auth0 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8167F73D300C2A9B0006FB2B /* XCRemoteSwiftPackageReference "Auth0" */;
+			productName = Auth0;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 90350E4F300C044C002CCA28 /* Project object */;
 }

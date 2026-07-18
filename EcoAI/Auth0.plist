@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Audience</key>
+	<string>https://api.ecoai.app</string>
+	<key>ClientId</key>
+	<string>wLITiUW9pigNFhSKuIUK9jGefYXdN3c3</string>
+	<key>Domain</key>
+	<string>dev-bg7lc3xvb0dth1f2.us.auth0.com</string>
+</dict>
+</plist>

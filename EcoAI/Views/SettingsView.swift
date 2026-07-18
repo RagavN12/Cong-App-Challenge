@@ -18,6 +18,7 @@ struct SettingsView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    let user: AuthenticatedUser?
     @Binding var appTheme: AppTheme
     @Binding var showChatHistory: Bool
     @Binding var showEnergyUsage: Bool
@@ -226,19 +227,12 @@ struct SettingsView: View {
     private var accountPane: some View {
         VStack(alignment: .leading, spacing: 26) {
             HStack(spacing: 14) {
-                Circle()
-                    .fill(Color.accentColor.gradient)
-                    .frame(width: 52, height: 52)
-                    .overlay(
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(.white)
-                    )
+                AccountAvatar(user: user, size: 52)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Rishit Varshney")
+                    Text(user?.displayName ?? "EcoAI User")
                         .font(.system(size: 15, weight: .semibold))
-                    Text("Personal account")
+                    Text(user?.email ?? "Personal account")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

@@ -24,17 +24,28 @@ enum CloudflareAccessError: LocalizedError, Sendable {
     }
 }
 
+struct PreviewAccessTokenProvider: AccessTokenProviding {
+    func accessToken(minTTL: Int) async throws -> String {
+        "preview-token"
+    }
+}
+
 /// Long-lived, concurrency-safe boundary for every Cloudflare Worker API.
 /// Authentication and refresh-token state can be added here without exposing
 /// mutable session data to SwiftUI views.
 actor CloudflareAccessPoint {
     let configuration: CloudflareConfiguration
 
+    private let tokenProvider: any AccessTokenProviding
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(configuration: CloudflareConfiguration) {
+    init(
+        configuration: CloudflareConfiguration,
+        tokenProvider: any AccessTokenProviding
+    ) {
         self.configuration = configuration
+        self.tokenProvider = tokenProvider
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -112,5 +123,26 @@ actor CloudflareAccessPoint {
 
     func decodedEvent(from data: Data) throws -> LLMStreamEvent {
         try decoder.decode(LLMStreamEvent.self, from: data)
+    }
+
+    /// Creates a Worker request with a current Auth0 access token. Keeping this
+    /// here ensures views and chat state never handle bearer tokens directly.
+    func authorizedRequest(
+        path: String,
+        method: String = "GET",
+        body: Data? = nil
+    ) async throws -> URLRequest {
+        let url = configuration.workerBaseURL.appending(path: path)
+        let token = try await tokenProvider.accessToken(minTTL: 60)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if body != nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        return request
     }
 }

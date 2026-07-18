@@ -2,17 +2,10 @@ import SwiftUI
 
 struct LoginView: View {
     @Binding var appTheme: AppTheme
-    let onLogin: (String, String) -> Void
-
-    @State private var email = ""
-    @State private var password = ""
-    @State private var showPassword = false
-    @FocusState private var focusedField: Field?
-
-    private enum Field {
-        case email
-        case password
-    }
+    let isWorking: Bool
+    let errorMessage: String?
+    let isConfigured: Bool
+    let onLogin: () -> Void
 
     var body: some View {
         ZStack {
@@ -48,7 +41,6 @@ struct LoginView: View {
             .padding(18)
         }
         .frame(minWidth: 760, minHeight: 640)
-        .onAppear { focusedField = .email }
     }
 
     private var subtleBackground: some View {
@@ -85,84 +77,57 @@ struct LoginView: View {
     }
 
     private var loginCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 7) {
-                Text("Email")
-                    .font(.system(size: 11, weight: .medium))
-                TextField("you@example.com", text: $email)
-                    .textFieldStyle(.plain)
-                    .focused($focusedField, equals: .email)
-                    .onSubmit { focusedField = .password }
-                    .padding(.horizontal, 11)
-                    .frame(height: 38)
-                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.1), lineWidth: 1))
+        VStack(spacing: 17) {
+            VStack(spacing: 8) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Text("Secure sign in")
+                    .font(.system(size: 14, weight: .semibold))
+
+                Text("A secure browser window will open so you can log in or create an account. EcoAI never sees your password.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Text("Password")
-                        .font(.system(size: 11, weight: .medium))
-                    Spacer()
-                    Button("Forgot password?") {}
-                        .font(.system(size: 10, weight: .medium))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .disabled(true)
-                }
-
-                HStack(spacing: 6) {
-                    Group {
-                        if showPassword {
-                            TextField("Password", text: $password)
-                        } else {
-                            SecureField("Password", text: $password)
-                        }
+            Button(action: onLogin) {
+                HStack(spacing: 8) {
+                    if isWorking {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 12, weight: .semibold))
                     }
-                    .textFieldStyle(.plain)
-                    .focused($focusedField, equals: .password)
-                    .onSubmit(logIn)
-
-                    Button {
-                        showPassword.toggle()
-                    } label: {
-                        Image(systemName: showPassword ? "eye.slash" : "eye")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.plain)
-                    .help(showPassword ? "Hide password" : "Show password")
+                    Text(isWorking ? "Opening secure login…" : "Continue to login")
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .padding(.horizontal, 11)
-                .frame(height: 38)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.1), lineWidth: 1))
-            }
-
-            Button(action: logIn) {
-                Text("Log in")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .background(Color.primary, in: RoundedRectangle(cornerRadius: 9))
+                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(Color.primary, in: RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
-            .disabled(!canLogIn)
-            .opacity(canLogIn ? 1 : 0.45)
+            .disabled(isWorking || !isConfigured)
+            .opacity(isWorking || !isConfigured ? 0.5 : 1)
 
-            HStack(spacing: 4) {
-                Text("New to EcoAI?")
-                    .foregroundStyle(.secondary)
-                Button("Create an account") {}
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
-                    .disabled(true)
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 10))
-            .frame(maxWidth: .infinity)
+
+            Text("Authentication is handled by Auth0 using Authorization Code Flow with PKCE.")
+                .font(.system(size: 9.5))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
         }
         .padding(24)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
@@ -188,14 +153,5 @@ struct LoginView: View {
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .help("Appearance")
-    }
-
-    private var canLogIn: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
-    }
-
-    private func logIn() {
-        guard canLogIn else { return }
-        onLogin(email.trimmingCharacters(in: .whitespacesAndNewlines), password)
     }
 }

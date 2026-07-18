@@ -17,7 +17,11 @@ struct EcoAIApp: App {
     @AppStorage("panels.energyUsage.visible") private var showEnergyUsage = true
 
     init() {
-        let accessPoint = CloudflareAccessPoint(configuration: .preview)
+        let sessionStore = SessionStore()
+        let accessPoint = CloudflareAccessPoint(
+            configuration: .preview,
+            tokenProvider: sessionStore
+        )
         let repository = ChatLocalRepository()
         _chatStore = StateObject(
             wrappedValue: ChatStore(
@@ -25,36 +29,50 @@ struct EcoAIApp: App {
                 repository: repository
             )
         )
-        _sessionStore = StateObject(wrappedValue: SessionStore())
+        _sessionStore = StateObject(wrappedValue: sessionStore)
     }
 
     var body: some Scene {
         WindowGroup {
             AppThemeHost(theme: appTheme) {
                 Group {
-                    if sessionStore.isAuthenticated {
+                    if sessionStore.isRestoringSession {
+                        ProgressView("Restoring your session…")
+                            .controlSize(.small)
+                            .frame(minWidth: 760, minHeight: 640)
+                    } else if sessionStore.isAuthenticated {
                         ContentView(
                             chatStore: chatStore,
+                            user: sessionStore.user,
                             appTheme: $appTheme,
                             showChatHistory: $showChatHistory,
                             showEnergyUsage: $showEnergyUsage,
                             onLogout: {
                                 chatStore.cancelAllResponses()
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    sessionStore.logOut()
+                                Task {
+                                    await sessionStore.logOut()
                                 }
                             }
                         )
                         .transition(.opacity)
                     } else {
-                        LoginView(appTheme: $appTheme) { email, password in
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                sessionStore.logIn(email: email, password: password)
+                        LoginView(
+                            appTheme: $appTheme,
+                            isWorking: sessionStore.isWorking,
+                            errorMessage: sessionStore.errorMessage,
+                            isConfigured: sessionStore.isConfigured
+                        ) {
+                            Task {
+                                await sessionStore.logIn()
                             }
                         }
                         .transition(.opacity)
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: sessionStore.isAuthenticated)
+            }
+            .task {
+                await sessionStore.restoreSession()
             }
         }
         .defaultSize(width: 1200, height: 760)
