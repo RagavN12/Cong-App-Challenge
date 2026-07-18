@@ -16,6 +16,11 @@
 			path = EcoAI;
 			sourceTree = "<group>";
 		};
+		90350E6D300C115B002CCA28 /* backend */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = backend;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -34,6 +39,7 @@
 			children = (
 				90350E59300C044D002CCA28 /* EcoAI */,
 				90350E58300C044D002CCA28 /* Products */,
+				90350E6D300C115B002CCA28 /* backend */,
 			);
 			sourceTree = "<group>";
 		};
@@ -62,6 +68,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				90350E59300C044D002CCA28 /* EcoAI */,
+				90350E6D300C115B002CCA28 /* backend */,
 			);
 			name = EcoAI;
 			packageProductDependencies = (
@@ -260,6 +267,11 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/backend/.venv/lib/python3.9/site-packages/pydantic_core",
+					"$(PROJECT_DIR)/backend/.venv/lib/python3.9/site-packages/watchfiles",
+				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ecoai.EcoAI;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -289,6 +301,11 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/backend/.venv/lib/python3.9/site-packages/pydantic_core",
+					"$(PROJECT_DIR)/backend/.venv/lib/python3.9/site-packages/watchfiles",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ecoai.EcoAI;
