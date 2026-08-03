@@ -1,13 +1,9 @@
 {
-  "name": "ecoai-openrouter",
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "ecoai-worker",
   "main": "src/index.js",
-  "compatibility_date": "2026-08-03",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2026-03-08",
   "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
-  },
-  "vars": {
-    "OPENROUTER_MODEL": "openrouter/free"
+    "enabled": true
   }
 }
