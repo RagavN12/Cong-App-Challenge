@@ -5,9 +5,23 @@ struct CloudflareConfiguration: Sendable {
     let streamTimeout: Duration
 
     static let preview = CloudflareConfiguration(
-        workerBaseURL: URL(string: "https://example.workers.dev") ?? URL(fileURLWithPath: "/"),
+        workerBaseURL: URL(string: "https://ecoai-worker.sriragav-naresh.workers.dev") ?? URL(fileURLWithPath: "/"),
         streamTimeout: .seconds(60)
     )
+
+    /// Reads the deployed Worker's URL from Info.plist ("CloudflareWorkerURL"),
+    /// e.g. https://ecoai-worker.<your-subdomain>.workers.dev — so the target
+    /// can change per build without touching code. Falls back to `.preview`
+    /// (which will surface CloudflareAccessError.invalidResponse) if unset.
+    static func production(bundle: Bundle = .main) -> CloudflareConfiguration {
+        guard
+            let raw = bundle.object(forInfoDictionaryKey: "CloudflareWorkerURL") as? String,
+            let url = URL(string: raw)
+        else {
+            return .preview
+        }
+        return CloudflareConfiguration(workerBaseURL: url, streamTimeout: .seconds(60))
+    }
 }
 
 enum CloudflareAccessError: LocalizedError, Sendable {
@@ -58,60 +72,72 @@ actor CloudflareAccessPoint {
         self.decoder = decoder
     }
 
-    /// Streams structured response events. This placeholder uses the same
-    /// request and event types that the future SSE implementation will use.
+    /// Streams the assistant's response from the Worker's `/v1/chat/stream`
+    /// SSE endpoint. Each `data:` line is one JSON-encoded LLMStreamEvent;
+    /// the final event (carrying `finish_reason`) also carries token usage
+    /// and an energy estimate when the Worker was able to compute one.
     func streamAIResponse(
         request: LLMStreamRequest
     ) -> AsyncThrowingStream<LLMStreamEvent, Error> {
-        let timeout = configuration.streamTimeout
+        // Snapshot everything the background Task needs up front so the
+        // closure below never has to hop back onto the actor.
+        let encoder = self.encoder
+        let decoder = self.decoder
+        let tokenProvider = self.tokenProvider
+        let baseURL = configuration.workerBaseURL
+        let timeoutSeconds = TimeInterval(configuration.streamTimeout.components.seconds)
 
         return AsyncThrowingStream { continuation in
-            let supervisor = Task {
+            let task = Task {
                 do {
-                    try await withThrowingTaskGroup(of: Bool.self) { group in
-                        group.addTask {
-                            let response = "This is a preview response from EcoAI. When the Cloudflare Worker is connected, the assistant’s response will stream here in real time."
-                            let chunks = response.split(separator: " ").map(String.init)
+                    let token = try await tokenProvider.accessToken(minTTL: 60)
 
-                            for (index, chunk) in chunks.enumerated() {
-                                try Task.checkCancellation()
-                                try await Task.sleep(for: .milliseconds(35))
-                                continuation.yield(
-                                    LLMStreamEvent(
-                                        requestID: request.requestID,
-                                        delta: (index == 0 ? "" : " ") + chunk,
-                                        finishReason: index == chunks.indices.last ? "stop" : nil
-                                    )
-                                )
-                            }
-                            return true
-                        }
+                    var urlRequest = URLRequest(
+                        url: baseURL.appending(path: "v1/chat/stream")
+                    )
+                    urlRequest.httpMethod = "POST"
+                    urlRequest.httpBody = try encoder.encode(request)
+                    urlRequest.timeoutInterval = timeoutSeconds
+                    urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
-                        group.addTask {
-                            try await Task.sleep(for: timeout)
-                            return false
-                        }
+                    let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
 
-                        guard let producerFinished = try await group.next() else {
-                            throw CloudflareAccessError.invalidResponse
-                        }
-                        group.cancelAll()
-
-                        if producerFinished {
-                            continuation.finish()
-                        } else {
-                            throw CloudflareAccessError.streamTimedOut
-                        }
+                    guard let http = response as? HTTPURLResponse else {
+                        throw CloudflareAccessError.invalidResponse
                     }
+                    guard (200..<300).contains(http.statusCode) else {
+                        throw CloudflareAccessError.server(statusCode: http.statusCode)
+                    }
+
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        guard line.hasPrefix("data:") else { continue }
+
+                        let payload = line
+                            .dropFirst("data:".count)
+                            .trimmingCharacters(in: .whitespaces)
+                        if payload == "[DONE]" { continue }
+                        guard let data = payload.data(using: .utf8) else { continue }
+
+                        let event = try decoder.decode(LLMStreamEvent.self, from: data)
+                        guard event.requestID == request.requestID else { continue }
+                        continuation.yield(event)
+                    }
+
+                    continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
+                } catch let urlError as URLError where urlError.code == .timedOut {
+                    continuation.finish(throwing: CloudflareAccessError.streamTimedOut)
                 } catch {
                     continuation.finish(throwing: error)
                 }
             }
 
             continuation.onTermination = { _ in
-                supervisor.cancel()
+                task.cancel()
             }
         }
     }
@@ -125,8 +151,9 @@ actor CloudflareAccessPoint {
         try decoder.decode(LLMStreamEvent.self, from: data)
     }
 
-    /// Creates a Worker request with a current Auth0 access token. Keeping this
-    /// here ensures views and chat state never handle bearer tokens directly.
+    /// Creates a Worker request with a current Auth0 access token. Used for
+    /// simple JSON endpoints like GET /v1/models; the streaming endpoint
+    /// builds its own request in `streamAIResponse` above.
     func authorizedRequest(
         path: String,
         method: String = "GET",

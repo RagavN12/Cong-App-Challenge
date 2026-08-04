@@ -6,7 +6,7 @@ struct ContentView: View {
 
     @State private var selectedChatID: ChatThread.ID?
     @State private var draft = ""
-    @State private var selectedModel = AIModel.defaultModel
+    @State private var selectedModel = AIModel.auto
     @State private var energy = 72.0
     @State private var showAttachmentNotice = false
     @State private var chatPendingDeletion: ChatThread?
@@ -62,7 +62,7 @@ struct ContentView: View {
             .frame(minWidth: 480, maxWidth: .infinity)
 
             if showEnergyUsage {
-                EnergySidebar(energy: $energy)
+                EnergySidebar(energy: $energy, usage: chatStore.usage)
                     .frame(minWidth: 200, idealWidth: 248, maxWidth: 400)
             }
         }

@@ -6,6 +6,9 @@ final class ChatStore: ObservableObject {
     @Published private(set) var chats: [ChatThread]
     @Published private(set) var respondingChatIDs: Set<ChatThread.ID> = []
     @Published private(set) var lastError: String?
+    /// Running total for this session, folded live from each response's
+    /// usage/energy_wh event. Feeds EnergySidebar.
+    @Published private(set) var usage: EnergyUsageSnapshot = .zero
 
     private let accessPoint: CloudflareAccessPoint
     private let repository: ChatLocalRepository
@@ -96,6 +99,9 @@ final class ChatStore: ObservableObject {
                     self?.updateMessage(responseID, in: threadID) { message in
                         message.content += event.delta
                     }
+                    if let usage = event.usage {
+                        self?.applyUsage(usage, energyWattHours: event.energyWattHours ?? 0)
+                    }
                 }
             } catch is CancellationError {
                 self?.removeEmptyMessage(responseID, from: threadID)
@@ -156,6 +162,14 @@ final class ChatStore: ObservableObject {
             }
         }
         lastError = error.localizedDescription
+    }
+
+    private func applyUsage(_ usage: LLMUsagePayload, energyWattHours: Double) {
+        self.usage = self.usage.adding(
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            wattHours: energyWattHours
+        )
     }
 
     private func finishResponse(in threadID: ChatThread.ID) {
