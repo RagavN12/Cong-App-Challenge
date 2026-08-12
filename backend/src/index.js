@@ -3,10 +3,6 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// Curated free-tier OpenRouter models. Keys are what the Swift app sends as
-// `model`; values are the upstream OpenRouter model id. The free lineup
-// rotates — re-check https://openrouter.ai/models?order=top-weekly (filter
-// "Price: Free") occasionally and update this map.
 const FREE_MODELS = {
   auto: "openrouter/free",
   "deepseek-r1": "deepseek/deepseek-r1:free",
@@ -17,11 +13,29 @@ const FREE_MODELS = {
   "mistral-small": "mistralai/mistral-small-3.1-24b-instruct:free"
 };
 
-// Rough, order-of-magnitude estimate of electricity used per 1K tokens for a
-// small/mid-size open-weight model served via an inference API. This is a
-// UI-friendly approximation for the energy sidebar, not a measured or
-// certified figure — there is no public per-request energy metering API.
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
+
+// --- Structured logging -----------------------------------------------
+// Cloudflare's Observability / Workers Logs feature (enabled via
+// "observability": { "enabled": true } in wrangler.jsonc) automatically
+// ingests everything written to console.*, and lets you filter/search on
+// fields inside a JSON-formatted log line in the dashboard. Plain string
+// logs still show up, but you can't query them by field — so every log
+// line here is one JSON object with a consistent shape:
+//   { level, requestId, event, ...extra fields }
+function log(level, requestId, event, fields = {}) {
+  const entry = {
+    level,
+    requestId,
+    event,
+    timestamp: new Date().toISOString(),
+    ...fields
+  };
+  const line = JSON.stringify(entry);
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -40,6 +54,10 @@ function estimateWattHours(usage) {
   return Number(((totalTokens / 1000) * WATT_HOURS_PER_1K_TOKENS).toFixed(4));
 }
 
+function requestID() {
+  return crypto.randomUUID();
+}
+
 let jwks = null;
 function getJWKS(domain) {
   if (!jwks) {
@@ -50,13 +68,28 @@ function getJWKS(domain) {
 
 // Verifies the Auth0 access token the Swift app attaches as a Bearer token.
 // Returns the decoded claims on success, or null if missing/invalid.
-async function verifyAuth(request, env) {
+// Every branch logs a structured event so a 401 is traceable in Workers Logs
+// without needing `wrangler tail` open at the exact moment it happened.
+async function verifyAuth(request, env, id) {
   const header = request.headers.get("Authorization");
-  if (!header?.startsWith("Bearer ")) return null;
+
+  if (!header) {
+    log("warn", id, "auth.missing_header");
+    return null;
+  }
+  if (!header.startsWith("Bearer ")) {
+    log("warn", id, "auth.malformed_header", { headerPrefix: header.slice(0, 10) });
+    return null;
+  }
 
   const token = header.slice("Bearer ".length);
+  log("info", id, "auth.token_received", { tokenLength: token.length });
+
   if (!env.AUTH0_DOMAIN || !env.AUTH0_AUDIENCE) {
-    console.error("AUTH0_DOMAIN / AUTH0_AUDIENCE not configured");
+    log("error", id, "auth.env_missing", {
+      hasDomain: Boolean(env.AUTH0_DOMAIN),
+      hasAudience: Boolean(env.AUTH0_AUDIENCE)
+    });
     return null;
   }
 
@@ -65,40 +98,64 @@ async function verifyAuth(request, env) {
       issuer: `https://${env.AUTH0_DOMAIN}/`,
       audience: env.AUTH0_AUDIENCE
     });
+    log("info", id, "auth.verified", {
+      sub: payload.sub,
+      aud: payload.aud,
+      expiresAt: new Date(payload.exp * 1000).toISOString()
+    });
     return payload;
   } catch (error) {
-    console.error("JWT verification failed:", error.message);
+    log("error", id, "auth.verification_failed", {
+      code: error.code ?? "unknown",
+      message: error.message
+    });
     return null;
   }
 }
 
 export default {
   async fetch(request, env) {
+    const id = requestID();
     const url = new URL(request.url);
+    const startedAt = Date.now();
+
+    log("info", id, "request.received", {
+      method: request.method,
+      path: url.pathname
+    });
 
     if (request.method === "GET" && url.pathname === "/health") {
+      log("info", id, "response.sent", { status: 200, route: "/health" });
       return json({ status: "ok" });
     }
 
-    // Lets the app populate its model picker without hardcoding the list twice.
     if (request.method === "GET" && url.pathname === "/v1/models") {
-      const models = Object.keys(FREE_MODELS).map((id) => ({ id }));
+      const models = Object.keys(FREE_MODELS).map((mid) => ({ id: mid }));
+      log("info", id, "response.sent", { status: 200, route: "/v1/models", modelCount: models.length });
       return json({ models });
     }
 
     if (request.method !== "POST" || url.pathname !== "/v1/chat/stream") {
+      log("warn", id, "response.sent", {
+        status: 404,
+        reason: "route_not_matched",
+        method: request.method,
+        path: url.pathname
+      });
       return json({ error: "Not found" }, 404);
     }
 
-    const claims = await verifyAuth(request, env);
+    const claims = await verifyAuth(request, env, id);
     if (!claims) {
+      log("warn", id, "response.sent", { status: 401, reason: "auth_failed" });
       return json({ error: "Unauthorized" }, 401);
     }
 
     let body;
     try {
       body = await request.json();
-    } catch {
+    } catch (error) {
+      log("error", id, "response.sent", { status: 400, reason: "invalid_json", message: error.message });
       return json({ error: "Invalid JSON" }, 400);
     }
 
@@ -107,6 +164,12 @@ export default {
       !Array.isArray(body.messages) ||
       body.messages.length === 0
     ) {
+      log("error", id, "response.sent", {
+        status: 422,
+        reason: "invalid_chat_request",
+        hasRequestId: Boolean(body?.request_id),
+        messageCount: Array.isArray(body?.messages) ? body.messages.length : null
+      });
       return json({ error: "Invalid chat request" }, 422);
     }
 
@@ -115,6 +178,21 @@ export default {
       FREE_MODELS[requestedModel] ??
       FREE_MODELS[env.DEFAULT_MODEL_ID] ??
       FREE_MODELS.auto;
+
+    log("info", id, "chat.routed", {
+      clientRequestId: body.request_id,
+      requestedModel: requestedModel ?? null,
+      upstreamModel,
+      messageCount: body.messages.length
+    });
+
+    if (!env.OPENROUTER_API_KEY) {
+      log("error", id, "response.sent", { status: 500, reason: "openrouter_key_missing" });
+      return json({ error: "Server misconfigured" }, 500);
+    }
+
+    const openRouterStartedAt = Date.now();
+    log("info", id, "openrouter.request_started", { model: upstreamModel });
 
     const upstream = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -134,17 +212,30 @@ export default {
           })),
           max_tokens: 1024,
           stream: true,
-          // Ask OpenRouter to emit a final usage chunk so we can report
-          // token counts and an energy estimate back to the app.
           stream_options: { include_usage: true }
         })
       }
     );
 
+    log("info", id, "openrouter.response_received", {
+      status: upstream.status,
+      ok: upstream.ok,
+      durationMs: Date.now() - openRouterStartedAt
+    });
+
     if (!upstream.ok || !upstream.body) {
-      console.error("OpenRouter error:", upstream.status, await safeText(upstream));
+      const errorText = await safeText(upstream);
+      log("error", id, "response.sent", {
+        status: 502,
+        reason: "openrouter_error",
+        upstreamStatus: upstream.status,
+        upstreamBody: errorText.slice(0, 500)
+      });
       return json({ error: "OpenRouter request failed" }, 502);
     }
+
+    let deltaCount = 0;
+    let charCount = 0;
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -178,9 +269,16 @@ export default {
 
                 if (chunk.usage) {
                   lastUsage = chunk.usage;
+                  log("info", id, "chat.usage_received", {
+                    promptTokens: lastUsage.prompt_tokens,
+                    completionTokens: lastUsage.completion_tokens,
+                    totalTokens: lastUsage.total_tokens
+                  });
                 }
 
                 if (delta) {
+                  deltaCount += 1;
+                  charCount += delta.length;
                   controller.enqueue(
                     sse({
                       request_id: body.request_id,
@@ -191,6 +289,11 @@ export default {
                 }
 
                 if (choice?.finish_reason) {
+                  log("info", id, "chat.finished", {
+                    finishReason: choice.finish_reason,
+                    deltaCount,
+                    charCount
+                  });
                   controller.enqueue(
                     sse({
                       request_id: body.request_id,
@@ -207,16 +310,21 @@ export default {
                     })
                   );
                 }
-              } catch {
-                // Ignore malformed upstream stream chunks.
+              } catch (parseError) {
+                log("warn", id, "chat.chunk_parse_failed", { message: parseError.message });
               }
             }
           }
 
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
+          log("info", id, "response.sent", {
+            status: 200,
+            route: "/v1/chat/stream",
+            durationMs: Date.now() - startedAt
+          });
         } catch (error) {
-          console.error("Stream failed:", error);
+          log("error", id, "chat.stream_failed", { message: error.message });
           controller.error(error);
         } finally {
           reader.releaseLock();
