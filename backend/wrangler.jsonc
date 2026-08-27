@@ -3,7 +3,22 @@
   "name": "ecoai-worker",
   "main": "src/index.js",
   "compatibility_date": "2026-03-08",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "vars": {
+    // Non-secret Auth0 tenant info, used to verify the JWT the Mac app sends.
+    // Matches EcoAI/Auth0.plist — update both together if you change tenants.
+    "AUTH0_DOMAIN": "dev-bg7lc3xvb0dth1f2.us.auth0.com",
+    "AUTH0_AUDIENCE": "https://api.ecoai.app",
+    // Fallback model when the client doesn't recognize the requested id.
+    "DEFAULT_MODEL_ID": "auto"
   }
+  // Secrets (never put these here — set them with `wrangler secret put <NAME>`):
+  //   OPENROUTER_API_KEY
 }
