@@ -5,7 +5,7 @@ const decoder = new TextDecoder();
 
 const FREE_MODELS = {
   auto: "openrouter/free",
-  "deepseek-r1": "deepseek/deepseek-r1:free",
+  "z-ai/glm-5.2": "z-ai/glm-5.2:free",
   "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
   "qwen3-coder": "qwen/qwen3-coder:free",
   "gpt-oss-20b": "openai/gpt-oss-20b:free",
@@ -54,6 +54,7 @@ function estimateWattHours(usage) {
   return Number(((totalTokens / 1000) * WATT_HOURS_PER_1K_TOKENS).toFixed(4));
 }
 
+// create random id
 function requestID() {
   return crypto.randomUUID();
 }
@@ -173,11 +174,11 @@ export default {
       return json({ error: "Invalid chat request" }, 422);
     }
 
-    const requestedModel = typeof body.model === "string" ? body.model : undefined;
+    const requestedModel = typeof body.model === "string" ? body.model : undefined; // FLEG
     const upstreamModel =
       FREE_MODELS[requestedModel] ??
-      FREE_MODELS[env.DEFAULT_MODEL_ID] ??
-      FREE_MODELS.auto;
+      FREE_MODELS[env.DEFAULT_MODEL_ID] //??
+      // FREE_MODELS.auto;
 
     log("info", id, "chat.routed", {
       clientRequestId: body.request_id,
@@ -240,7 +241,7 @@ export default {
     const stream = new ReadableStream({
       async start(controller) {
         const reader = upstream.body.getReader();
-        let buffer = "";
+        let buffer = ""; // FLEG
         let lastUsage = null;
 
         try {
@@ -249,13 +250,11 @@ export default {
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split("\n\n");
+            const events = buffer.split("\n\n"); // FLEG
             buffer = events.pop() || "";
 
             for (const event of events) {
-              const line = event
-                .split("\n")
-                .find((item) => item.startsWith("data:"));
+              const line = event.split("\n").find((item) => item.startsWith("data:"));
 
               if (!line) continue;
 
@@ -326,9 +325,10 @@ export default {
         } catch (error) {
           log("error", id, "chat.stream_failed", { message: error.message });
           controller.error(error);
-        } finally {
-          reader.releaseLock();
         }
+        
+        reader.releaseLock();
+        
       }
     });
 
