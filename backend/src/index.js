@@ -267,15 +267,6 @@ export default {
                 const choice = chunk.choices?.[0];
                 const delta = choice?.delta?.content;
 
-                if (chunk.usage) {
-                  lastUsage = chunk.usage;
-                  log("info", id, "chat.usage_received", {
-                    promptTokens: lastUsage.prompt_tokens,
-                    completionTokens: lastUsage.completion_tokens,
-                    totalTokens: lastUsage.total_tokens
-                  });
-                }
-
                 if (delta) {
                   deltaCount += 1;
                   charCount += delta.length;
@@ -299,13 +290,33 @@ export default {
                       request_id: body.request_id,
                       delta: "",
                       finish_reason: choice.finish_reason,
-                      usage: lastUsage
-                        ? {
-                            prompt_tokens: lastUsage.prompt_tokens ?? 0,
-                            completion_tokens: lastUsage.completion_tokens ?? 0,
-                            total_tokens: lastUsage.total_tokens ?? 0
-                          }
-                        : null,
+                      usage: null,
+                      energy_wh: null
+                    })
+                  );
+                }
+
+                // OpenRouter/OpenAI-style streams send usage in its own
+                // trailer chunk *after* the finish_reason chunk, with an
+                // empty `choices` array — so this has to be its own
+                // unconditional branch, not nested under `choice`.
+                if (chunk.usage) {
+                  lastUsage = chunk.usage;
+                  log("info", id, "chat.usage_received", {
+                    promptTokens: lastUsage.prompt_tokens,
+                    completionTokens: lastUsage.completion_tokens,
+                    totalTokens: lastUsage.total_tokens
+                  });
+                  controller.enqueue(
+                    sse({
+                      request_id: body.request_id,
+                      delta: "",
+                      finish_reason: null,
+                      usage: {
+                        prompt_tokens: lastUsage.prompt_tokens ?? 0,
+                        completion_tokens: lastUsage.completion_tokens ?? 0,
+                        total_tokens: lastUsage.total_tokens ?? 0
+                      },
                       energy_wh: estimateWattHours(lastUsage)
                     })
                   );
