@@ -11,7 +11,8 @@ const FREE_MODELS = {
   "gpt-oss-20b": "nvidia/nemotron-3.5-lightning:free",
   "google": "nvidia/nemotron-3.5-content-safety:free",
   "inclusionAI: Ling 3.0 Flash Sante (free)": "inclusionai/ling-3.0-flash-sante:free",
-  "Poolside: Laguna S 2.1 (free)":"poolside/laguna-s-2.1:free"
+  "Poolside: Laguna S 2.1 (free)": "poolside/laguna-s-2.1:free",
+  "Google: Gemma 4 26B A4B (free)": "google/gemma-4-26b-a4b-it:free"
 };
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;

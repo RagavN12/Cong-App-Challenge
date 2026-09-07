@@ -16,6 +16,7 @@ nonisolated enum AIModel: String, Codable, CaseIterable, Identifiable, Sendable 
     case google = "google"
     case inclusionAILing = "inclusionAI: Ling 3.0 Flash Sante (free)"
     case poolsideLaguna = "Poolside: Laguna S 2.1 (free)"
+    case googleGemma4 = "Google: Gemma 4 26B A4B (free)"
 
     var id: String { rawValue }
 
@@ -27,6 +28,7 @@ nonisolated enum AIModel: String, Codable, CaseIterable, Identifiable, Sendable 
         case .google: "Nemotron 3.5 Content Safety"
         case .inclusionAILing: "Ling 3.0 Flash Sante"
         case .poolsideLaguna: "Laguna S 2.1"
+        case .googleGemma4: "Gemma 4 26B A4B"
         }
     }
 }
