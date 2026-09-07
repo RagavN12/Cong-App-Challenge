@@ -11,30 +11,22 @@ nonisolated enum ChatRole: String, Codable, Sendable {
 /// the Worker's `FREE_MODELS` map in src/index.js. Keep these two in sync.
 nonisolated enum AIModel: String, Codable, CaseIterable, Identifiable, Sendable {
     case auto
-    case deepseekR1 = "deepseek-r1"
-    case zAI = "z-ai/glm-5.2"
-    case llama70b = "llama-3.3-70b"
     case qwen3Coder = "qwen3-coder"
     case gptOss20b = "gpt-oss-20b"
-    case gemma312b = "gemma-3-12b"
-    case mistralSmall = "mistral-small"
-    case googleGemma4 = "Google: Gemma 4 26B A4B (free)"
+    case google = "google"
     case inclusionAILing = "inclusionAI: Ling 3.0 Flash Sante (free)"
+    case poolsideLaguna = "Poolside: Laguna S 2.1 (free)"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .auto: "Auto (free)"
-        case .deepseekR1: "DeepSeek R1"
-        case .zAI: "GLM 5.2"
-        case .llama70b: "Llama 3.3 70B"
-        case .qwen3Coder: "Qwen3 Coder"
-        case .gptOss20b: "GPT-OSS 20B"
-        case .gemma312b: "Gemma 3 12B"
-        case .mistralSmall: "Mistral Small 3.1"
-        case .googleGemma4: "Gemma 4 26B A4B"
+        case .qwen3Coder: "Qwen3 Reranker 8B"
+        case .gptOss20b: "Nemotron 3.5 Lightning"
+        case .google: "Nemotron 3.5 Content Safety"
         case .inclusionAILing: "Ling 3.0 Flash Sante"
+        case .poolsideLaguna: "Laguna S 2.1"
         }
     }
 }

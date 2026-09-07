@@ -7,15 +7,11 @@ const FREE_MODELS = {
   auto: "openrouter/free",
   // Keep the client-facing ids stable while routing to models currently
   // published by OpenRouter's free tier.
-  "deepseek-r1": "google/gemma-4-26b-a4b-it:free",
-  "z-ai/glm-5.2": "minimax/minimax-m3:free",
-  "llama-3.3-70b": "minimax/minimax-m2.7:free",
-  "qwen3-coder": "cohere/north-mini-code:free",
+  "qwen3-coder": "qwen/qwen3-reranker-8b",
   "gpt-oss-20b": "nvidia/nemotron-3.5-lightning:free",
-  "gemma-3-12b": "google/gemma-4-31b-it:free",
-  "mistral-small": "liquid/lfm-2.5-2.6b:free",
-  "Google: Gemma 4 26B A4B (free)": "google/gemma-4-31b-it:free",
-  "inclusionAI: Ling 3.0 Flash Sante (free)": "inclusionai/ling-3.0-flash-sante:free"
+  "google": "nvidia/nemotron-3.5-content-safety:free",
+  "inclusionAI: Ling 3.0 Flash Sante (free)": "inclusionai/ling-3.0-flash-sante:free",
+  "Poolside: Laguna S 2.1 (free)":"poolside/laguna-s-2.1:free"
 };
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
