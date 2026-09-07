@@ -3,21 +3,13 @@ import SwiftUI
 struct EnergySidebar: View {
     @Binding var energy: Double
     let usage: EnergyUsageSnapshot
-    let promptAdvice: PromptAdviceState
-    let onRequestPromptAdvice: () -> Void
-
-    @State private var showPromptTip = false
 
     init(
         energy: Binding<Double>,
-        usage: EnergyUsageSnapshot = .preview,
-        promptAdvice: PromptAdviceState = .unavailable,
-        onRequestPromptAdvice: @escaping () -> Void = {}
+        usage: EnergyUsageSnapshot = .preview
     ) {
         _energy = energy
         self.usage = usage
-        self.promptAdvice = promptAdvice
-        self.onRequestPromptAdvice = onRequestPromptAdvice
     }
 
     var body: some View {
@@ -57,7 +49,6 @@ struct EnergySidebar: View {
                     )
 
                     analogyCard
-                    promptCoach
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 18)
@@ -121,95 +112,6 @@ struct EnergySidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var promptCoach: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle().fill(Color.green.opacity(0.11))
-                    Image(systemName: "leaf.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.green)
-                }
-                .frame(width: 32, height: 32)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Prompt smarter")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Use less energy")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Button {
-                    switch promptAdvice {
-                    case .loaded:
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showPromptTip.toggle()
-                        }
-                    case .loading:
-                        break
-                    default:
-                        showPromptTip = true
-                        onRequestPromptAdvice()
-                    }
-                } label: {
-                    Group {
-                        if case .loading = promptAdvice {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: showPromptTip ? "chevron.up" : "sparkles")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                    }
-                    .frame(width: 27, height: 27)
-                    .foregroundStyle(.secondary)
-                    .background(Color.primary.opacity(0.055), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help(showPromptTip ? "Hide recommendation" : "Get energy recommendation")
-            }
-
-            if showPromptTip {
-                Divider()
-                switch promptAdvice {
-                case .loading:
-                    HStack(spacing: 7) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Reviewing this conversation…")
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                case .loaded(let advice):
-                    Text(advice)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                case .failed(let message):
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .unavailable:
-                    Text("Open a conversation to get a tailored recommendation.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        )
     }
 
     nonisolated private static func formatTokens(_ value: Double) -> String {
