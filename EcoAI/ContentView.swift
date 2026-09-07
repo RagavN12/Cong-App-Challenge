@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 struct ContentView: View {
     @ObservedObject var chatStore: ChatStore
@@ -483,7 +484,9 @@ private struct MessageRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            if message.role == .user { Spacer(minLength: 72) }
+            if message.role == .user {
+                Spacer(minLength: 72)
+            }
 
             if message.role == .assistant {
                 Image(systemName: "leaf.fill")
@@ -502,6 +505,10 @@ private struct MessageRow: View {
                     }
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 9)
+
+                 } else if message.role == .assistant {
+                AssistantMarkdownText(markdown: message.content)
+
                 } else {
                     Text(message.content)
                         .font(.system(size: 14))
@@ -515,9 +522,25 @@ private struct MessageRow: View {
                 in: RoundedRectangle(cornerRadius: 16)
             )
 
-            if message.role == .assistant { Spacer(minLength: 36) }
+            if message.role == .assistant {
+                Spacer(minLength: 36)
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+private struct AssistantMarkdownText: View {
+    let markdown: String
+
+    var body: some View {
+        Markdown(markdown)
+            .markdownTheme(.gitHub)
+            .font(.system(size: 14))
+            .lineSpacing(3)
+            .textSelection(.enabled)
+            .tint(.accentColor)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
