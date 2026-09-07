@@ -5,13 +5,17 @@ const decoder = new TextDecoder();
 
 const FREE_MODELS = {
   auto: "openrouter/free",
-  "deepseek-r1": "deepseek/deepseek-r1:free",
-  "z-ai/glm-5.2": "z-ai/glm-5.2:free",
-  "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
-  "qwen3-coder": "qwen/qwen3-coder:free",
-  "gpt-oss-20b": "openai/gpt-oss-20b:free",
-  "gemma-3-12b": "google/gemma-3-12b-it:free",
-  "mistral-small": "mistralai/mistral-small-3.1-24b-instruct:free"
+  // Keep the client-facing ids stable while routing to models currently
+  // published by OpenRouter's free tier.
+  "deepseek-r1": "google/gemma-4-26b-a4b-it:free",
+  "z-ai/glm-5.2": "minimax/minimax-m3:free",
+  "llama-3.3-70b": "minimax/minimax-m2.7:free",
+  "qwen3-coder": "cohere/north-mini-code:free",
+  "gpt-oss-20b": "nvidia/nemotron-3.5-lightning:free",
+  "gemma-3-12b": "google/gemma-4-31b-it:free",
+  "mistral-small": "liquid/lfm-2.5-2.6b:free",
+  "Google: Gemma 4 26B A4B (free)": "google/gemma-4-31b-it:free",
+  "inclusionAI: Ling 3.0 Flash Sante (free)": "inclusionai/ling-3.0-flash-sante:free"
 };
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
@@ -238,7 +242,11 @@ export default {
         upstreamStatus: upstream.status,
         upstreamBody: errorText.slice(0, 500)
       });
-      return json({ error: "OpenRouter request failed" }, 502);
+      return json({
+        error: "OpenRouter request failed",
+        upstream_status: upstream.status,
+        detail: providerErrorMessage(errorText)
+      }, 502);
     }
 
     let deltaCount = 0;
@@ -363,5 +371,14 @@ async function safeText(response) {
     return await response.text();
   } catch {
     return "<unreadable body>";
+  }
+}
+
+function providerErrorMessage(body) {
+  try {
+    const payload = JSON.parse(body);
+    return payload?.error?.message || payload?.error || "The selected model is unavailable.";
+  } catch {
+    return body.trim().slice(0, 300) || "The selected model is unavailable.";
   }
 }

@@ -12,11 +12,14 @@ nonisolated enum ChatRole: String, Codable, Sendable {
 nonisolated enum AIModel: String, Codable, CaseIterable, Identifiable, Sendable {
     case auto
     case deepseekR1 = "deepseek-r1"
+    case zAI = "z-ai/glm-5.2"
     case llama70b = "llama-3.3-70b"
     case qwen3Coder = "qwen3-coder"
     case gptOss20b = "gpt-oss-20b"
     case gemma312b = "gemma-3-12b"
     case mistralSmall = "mistral-small"
+    case googleGemma4 = "Google: Gemma 4 26B A4B (free)"
+    case inclusionAILing = "inclusionAI: Ling 3.0 Flash Sante (free)"
 
     var id: String { rawValue }
 
@@ -24,11 +27,14 @@ nonisolated enum AIModel: String, Codable, CaseIterable, Identifiable, Sendable 
         switch self {
         case .auto: "Auto (free)"
         case .deepseekR1: "DeepSeek R1"
+        case .zAI: "GLM 5.2"
         case .llama70b: "Llama 3.3 70B"
         case .qwen3Coder: "Qwen3 Coder"
         case .gptOss20b: "GPT-OSS 20B"
         case .gemma312b: "Gemma 3 12B"
         case .mistralSmall: "Mistral Small 3.1"
+        case .googleGemma4: "Gemma 4 26B A4B"
+        case .inclusionAILing: "Ling 3.0 Flash Sante"
         }
     }
 }
