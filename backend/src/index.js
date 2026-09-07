@@ -5,6 +5,7 @@ const decoder = new TextDecoder();
 
 const FREE_MODELS = {
   auto: "openrouter/free",
+  "deepseek-r1": "deepseek/deepseek-r1:free",
   "z-ai/glm-5.2": "z-ai/glm-5.2:free",
   "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
   "qwen3-coder": "qwen/qwen3-coder:free",
@@ -50,8 +51,13 @@ function sse(payload) {
 
 function estimateWattHours(usage) {
   if (!usage) return null;
-  const totalTokens = (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
-  return Number(((totalTokens / 1000) * WATT_HOURS_PER_1K_TOKENS).toFixed(4));
+  const input = Number((((usage.prompt_tokens || 0) / 1000) * WATT_HOURS_PER_1K_TOKENS).toFixed(4));
+  const output = Number((((usage.completion_tokens || 0) / 1000) * WATT_HOURS_PER_1K_TOKENS).toFixed(4));
+  return {
+    input,
+    output,
+    total: Number((input + output).toFixed(4))
+  };
 }
 
 // create random id
@@ -174,11 +180,11 @@ export default {
       return json({ error: "Invalid chat request" }, 422);
     }
 
-    const requestedModel = typeof body.model === "string" ? body.model : undefined; // FLEG
+    const requestedModel = typeof body.model === "string" ? body.model : undefined;
     const upstreamModel =
       FREE_MODELS[requestedModel] ??
-      FREE_MODELS[env.DEFAULT_MODEL_ID] //??
-      // FREE_MODELS.auto;
+      FREE_MODELS[env.DEFAULT_MODEL_ID] ??
+      FREE_MODELS.auto;
 
     log("info", id, "chat.routed", {
       clientRequestId: body.request_id,
@@ -241,7 +247,7 @@ export default {
     const stream = new ReadableStream({
       async start(controller) {
         const reader = upstream.body.getReader();
-        let buffer = ""; // FLEG
+        let buffer = "";
         let lastUsage = null;
 
         try {
@@ -250,7 +256,7 @@ export default {
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split("\n\n"); // FLEG
+            const events = buffer.split("\n\n");
             buffer = events.pop() || "";
 
             for (const event of events) {

@@ -6,12 +6,10 @@ final class ChatStore: ObservableObject {
     @Published private(set) var chats: [ChatThread]
     @Published private(set) var respondingChatIDs: Set<ChatThread.ID> = []
     @Published private(set) var lastError: String?
-    /// Running total for this session, folded live from each response's
-    /// usage/energy_wh event. Feeds EnergySidebar.
-    @Published private(set) var usage: EnergyUsageSnapshot = .zero
 
     private let accessPoint: CloudflareAccessPoint
     private let repository: ChatLocalRepository
+    private let energyUsageStore: EnergyUsageStore
     private var responseTasks: [ChatThread.ID: Task<Void, Never>] = [:]
     private var persistenceTask: Task<Void, Never>?
     private var hasLoaded = false
@@ -19,10 +17,12 @@ final class ChatStore: ObservableObject {
     init(
         accessPoint: CloudflareAccessPoint,
         repository: ChatLocalRepository,
+        energyUsageStore: EnergyUsageStore,
         seedChats: [ChatThread] = ChatStore.sampleChats
     ) {
         self.accessPoint = accessPoint
         self.repository = repository
+        self.energyUsageStore = energyUsageStore
         self.chats = seedChats
     }
 
@@ -100,7 +100,7 @@ final class ChatStore: ObservableObject {
                         message.content += event.delta
                     }
                     if let usage = event.usage {
-                        self?.applyUsage(usage, energyWattHours: event.energyWattHours ?? 0)
+                        self?.energyUsageStore.recordResponse(usage: usage, energy: event.energy)
                     }
                 }
             } catch is CancellationError {
@@ -162,14 +162,6 @@ final class ChatStore: ObservableObject {
             }
         }
         lastError = error.localizedDescription
-    }
-
-    private func applyUsage(_ usage: LLMUsagePayload, energyWattHours: Double) {
-        self.usage = self.usage.adding(
-            promptTokens: usage.promptTokens,
-            completionTokens: usage.completionTokens,
-            wattHours: energyWattHours
-        )
     }
 
     private func finishResponse(in threadID: ChatThread.ID) {

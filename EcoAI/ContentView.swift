@@ -4,6 +4,7 @@ import MarkdownUI
 struct ContentView: View {
     @ObservedObject var chatStore: ChatStore
     let user: AuthenticatedUser?
+    let energyUsage: EnergyUsageSnapshot
 
     @State private var selectedChatID: ChatThread.ID?
     @State private var draft = ""
@@ -21,6 +22,7 @@ struct ContentView: View {
     init(
         chatStore: ChatStore,
         user: AuthenticatedUser? = nil,
+        energyUsage: EnergyUsageSnapshot = .zero,
         appTheme: Binding<AppTheme> = .constant(.system),
         showChatHistory: Binding<Bool> = .constant(true),
         showEnergyUsage: Binding<Bool> = .constant(true),
@@ -28,6 +30,7 @@ struct ContentView: View {
     ) {
         self.chatStore = chatStore
         self.user = user
+        self.energyUsage = energyUsage
         _appTheme = appTheme
         _showChatHistory = showChatHistory
         _showEnergyUsage = showEnergyUsage
@@ -63,7 +66,7 @@ struct ContentView: View {
             .frame(minWidth: 480, maxWidth: .infinity)
 
             if showEnergyUsage {
-                EnergySidebar(energy: $energy, usage: chatStore.usage)
+                EnergySidebar(energy: $energy, usage: energyUsage)
                     .frame(minWidth: 200, idealWidth: 248, maxWidth: 400)
             }
         }
@@ -555,8 +558,15 @@ struct ContentView_Previews: PreviewProvider {
                 repository: ChatLocalRepository(
                     storageURL: FileManager.default.temporaryDirectory
                         .appendingPathComponent("ecoai-preview-chat-history.json")
+                ),
+                energyUsageStore: EnergyUsageStore(
+                    repository: EnergyUsageRepository(
+                        storageURL: FileManager.default.temporaryDirectory
+                            .appendingPathComponent("ecoai-preview-energy-usage.json")
+                    )
                 )
             ),
+            energyUsage: .preview,
             appTheme: .constant(.system),
             showChatHistory: .constant(true),
             showEnergyUsage: .constant(true)

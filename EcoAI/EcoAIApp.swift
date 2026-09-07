@@ -11,6 +11,7 @@ import SwiftUI
 @main
 struct EcoAIApp: App {
     @StateObject private var chatStore: ChatStore
+    @StateObject private var energyUsageStore: EnergyUsageStore
     @StateObject private var sessionStore: SessionStore
     @AppStorage("appearance.theme") private var appTheme = AppTheme.system
     @AppStorage("panels.chatHistory.visible") private var showChatHistory = true
@@ -18,17 +19,20 @@ struct EcoAIApp: App {
 
     init() {
         let sessionStore = SessionStore()
+        let energyUsageStore = EnergyUsageStore(repository: EnergyUsageRepository())
         let accessPoint = CloudflareAccessPoint(
-            configuration: .preview,
+            configuration: .production(),
             tokenProvider: sessionStore
         )
         let repository = ChatLocalRepository()
         _chatStore = StateObject(
             wrappedValue: ChatStore(
                 accessPoint: accessPoint,
-                repository: repository
+                repository: repository,
+                energyUsageStore: energyUsageStore
             )
         )
+        _energyUsageStore = StateObject(wrappedValue: energyUsageStore)
         _sessionStore = StateObject(wrappedValue: sessionStore)
     }
 
@@ -44,6 +48,7 @@ struct EcoAIApp: App {
                         ContentView(
                             chatStore: chatStore,
                             user: sessionStore.user,
+                            energyUsage: energyUsageStore.snapshot,
                             appTheme: $appTheme,
                             showChatHistory: $showChatHistory,
                             showEnergyUsage: $showEnergyUsage,
@@ -73,6 +78,7 @@ struct EcoAIApp: App {
             }
             .task {
                 await sessionStore.restoreSession()
+                await energyUsageStore.load()
             }
         }
         .defaultSize(width: 1200, height: 760)

@@ -121,19 +121,57 @@ nonisolated struct LLMUsagePayload: Codable, Sendable {
     }
 }
 
+/// Estimated electricity use for one response. This mirrors the token split so
+/// the client does not have to guess how to divide one combined watt-hour value.
+nonisolated struct LLMEnergyPayload: Codable, Sendable {
+    let input: Double
+    let output: Double
+    let total: Double
+}
+
 /// A decoded event from the Worker's streaming response.
 nonisolated struct LLMStreamEvent: Codable, Sendable {
     let requestID: UUID
     let delta: String
     let finishReason: String?
     let usage: LLMUsagePayload?
-    let energyWattHours: Double?
+    let energy: LLMEnergyPayload?
 
     enum CodingKeys: String, CodingKey {
         case requestID = "request_id"
         case delta
         case finishReason = "finish_reason"
         case usage
-        case energyWattHours = "energy_wh"
+        case energy = "energy_wh"
+    }
+
+    init(
+        requestID: UUID,
+        delta: String,
+        finishReason: String?,
+        usage: LLMUsagePayload? = nil,
+        energy: LLMEnergyPayload? = nil
+    ) {
+        self.requestID = requestID
+        self.delta = delta
+        self.finishReason = finishReason
+        self.usage = usage
+        self.energy = energy
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requestID = try container.decode(UUID.self, forKey: .requestID)
+        delta = try container.decode(String.self, forKey: .delta)
+        finishReason = try container.decodeIfPresent(String.self, forKey: .finishReason)
+        usage = try container.decodeIfPresent(LLMUsagePayload.self, forKey: .usage)
+
+        if let structuredEnergy = try? container.decodeIfPresent(LLMEnergyPayload.self, forKey: .energy) {
+            energy = structuredEnergy
+        } else if let legacyTotal = try? container.decodeIfPresent(Double.self, forKey: .energy) {
+            energy = LLMEnergyPayload(input: 0, output: legacyTotal, total: legacyTotal)
+        } else {
+            energy = nil
+        }
     }
 }

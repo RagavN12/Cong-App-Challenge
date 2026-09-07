@@ -38,6 +38,10 @@ enum CloudflareAccessError: LocalizedError, Sendable {
     }
 }
 
+protocol AccessTokenProviding: Sendable {
+    func accessToken(minTTL: Int) async throws -> String
+}
+
 struct PreviewAccessTokenProvider: AccessTokenProviding {
     func accessToken(minTTL: Int) async throws -> String {
         "preview-token"

@@ -20,10 +20,6 @@ struct AuthenticatedUser: Equatable, Sendable {
     }
 }
 
-protocol AccessTokenProviding: Sendable {
-    func accessToken(minTTL: Int) async throws -> String
-}
-
 private struct Auth0Configuration: Sendable {
     let clientID: String
     let domain: String

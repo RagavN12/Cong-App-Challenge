@@ -30,9 +30,40 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
         promptRecommendation: EnergyUsageSnapshot.preview.promptRecommendation
     )
 
-    /// Folds one response's usage into the running session snapshot. The
-    /// Worker only reports a combined watt-hour estimate, so it's split
-    /// between input/output proportionally to each side's token share.
+    /// Folds one response's usage into the running daily snapshot.
+    func adding(usage: LLMUsagePayload, energy: LLMEnergyPayload?) -> EnergyUsageSnapshot {
+        if let energy {
+            let newInputTokens = tokens.input + Double(usage.promptTokens)
+            let newOutputTokens = tokens.output + Double(usage.completionTokens)
+            let newInputWh = electricityWattHours.input + energy.input
+            let newOutputWh = electricityWattHours.output + energy.output
+            let newTotalWh = newInputWh + newOutputWh
+
+            return EnergyUsageSnapshot(
+                tokens: Metric(
+                    input: newInputTokens,
+                    output: newOutputTokens,
+                    total: newInputTokens + newOutputTokens
+                ),
+                electricityWattHours: Metric(
+                    input: newInputWh,
+                    output: newOutputWh,
+                    total: newTotalWh
+                ),
+                analogy: Self.analogy(forWattHours: newTotalWh),
+                promptRecommendation: promptRecommendation
+            )
+        }
+
+        return adding(
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            wattHours: 0
+        )
+    }
+
+    /// Backward-compatible fallback for older Worker events that only reported
+    /// one combined watt-hour estimate.
     func adding(promptTokens: Int, completionTokens: Int, wattHours: Double) -> EnergyUsageSnapshot {
         let totalNewTokens = max(promptTokens + completionTokens, 1)
         let inputShare = wattHours * (Double(promptTokens) / Double(totalNewTokens))
