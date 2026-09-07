@@ -15,7 +15,6 @@ const FREE_MODELS = {
 };
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
-const PROMPT_COACH_MODEL = "openrouter/free";
 
 // --- Structured logging -----------------------------------------------
 // Cloudflare's Observability / Workers Logs feature (enabled via
@@ -141,110 +140,6 @@ export default {
       const models = Object.keys(FREE_MODELS).map((mid) => ({ id: mid }));
       log("info", id, "response.sent", { status: 200, route: "/v1/models", modelCount: models.length });
       return json({ models });
-    }
-
-    if (request.method === "POST" && url.pathname === "/v1/chat/coach") {
-      const claims = await verifyAuth(request, env, id);
-      if (!claims) {
-        log("warn", id, "response.sent", { status: 401, reason: "auth_failed", route: "/v1/chat/coach" });
-        return json({ error: "Unauthorized" }, 401);
-      }
-
-      let body;
-      try {
-        body = await request.json();
-      } catch (error) {
-        log("error", id, "response.sent", { status: 400, reason: "invalid_json", message: error.message });
-        return json({ error: "Invalid JSON" }, 400);
-      }
-
-      if (
-        !body?.request_id ||
-        !body?.thread_id ||
-        !Array.isArray(body.messages) ||
-        body.messages.length === 0
-      ) {
-        log("error", id, "response.sent", {
-          status: 422,
-          reason: "invalid_coach_request",
-          hasRequestId: Boolean(body?.request_id),
-          hasThreadId: Boolean(body?.thread_id),
-          messageCount: Array.isArray(body?.messages) ? body.messages.length : null
-        });
-        return json({ error: "Invalid coaching request" }, 422);
-      }
-
-      if (!env.OPENROUTER_API_KEY) {
-        log("error", id, "response.sent", { status: 500, reason: "openrouter_key_missing" });
-        return json({ error: "Server misconfigured" }, 500);
-      }
-
-      const coachPrompt = [
-        {
-          role: "system",
-          content: "Review the complete conversation and give concise, actionable advice for reducing energy use in future AI interactions. Focus on avoiding repeated context, stating the desired format early, reducing unnecessary follow-up turns, and choosing an appropriate level of detail. Do not answer the conversation itself. Return one or two sentences only."
-        },
-        ...body.messages.map(({ role, content }) => ({ role, content }))
-      ];
-
-      log("info", id, "coach.routed", {
-        clientRequestId: body.request_id,
-        threadId: body.thread_id,
-        model: PROMPT_COACH_MODEL,
-        messageCount: body.messages.length
-      });
-
-      let upstream;
-      try {
-        upstream = await fetch(
-          "https://openrouter.ai/api/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${env.OPENROUTER_API_KEY}`,
-              "Content-Type": "application/json",
-              "HTTP-Referer": "https://ecoai.local",
-              "X-Title": "EcoAI Prompt Coach"
-            },
-            body: JSON.stringify({
-              model: PROMPT_COACH_MODEL,
-              messages: coachPrompt,
-              max_tokens: 220,
-              temperature: 0.2,
-              stream: false
-            })
-          }
-        );
-      } catch (error) {
-        log("error", id, "coach.request_failed", { message: error.message });
-        return json({ error: "Prompt coaching failed" }, 502);
-      }
-
-      if (!upstream.ok) {
-        const errorText = await safeText(upstream);
-        log("error", id, "coach.upstream_failed", {
-          status: upstream.status,
-          body: errorText.slice(0, 500)
-        });
-        return json({ error: "Prompt coaching failed" }, 502);
-      }
-
-      let result;
-      try {
-        result = await upstream.json();
-      } catch (error) {
-        log("error", id, "coach.invalid_upstream_json", { message: error.message });
-        return json({ error: "Prompt coaching failed" }, 502);
-      }
-
-      const advice = result.choices?.[0]?.message?.content?.trim();
-      if (!advice) {
-        log("error", id, "coach.empty_response");
-        return json({ error: "Prompt coaching failed" }, 502);
-      }
-
-      log("info", id, "response.sent", { status: 200, route: "/v1/chat/coach" });
-      return json({ advice });
     }
 
     if (request.method !== "POST" || url.pathname !== "/v1/chat/stream") {

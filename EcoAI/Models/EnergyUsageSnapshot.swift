@@ -15,22 +15,19 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
     let latestResponseWattHours: Double
     let responseCount: Int
     let analogy: String
-    let promptRecommendation: String
 
     init(
         tokens: Metric,
         electricityWattHours: Metric,
         latestResponseWattHours: Double,
         responseCount: Int = 0,
-        analogy: String,
-        promptRecommendation: String
+        analogy: String
     ) {
         self.tokens = tokens
         self.electricityWattHours = electricityWattHours
         self.latestResponseWattHours = latestResponseWattHours
         self.responseCount = responseCount
         self.analogy = analogy
-        self.promptRecommendation = promptRecommendation
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -39,7 +36,6 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
         case latestResponseWattHours
         case responseCount
         case analogy
-        case promptRecommendation
     }
 
     init(from decoder: Decoder) throws {
@@ -49,7 +45,6 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
         latestResponseWattHours = try container.decodeIfPresent(Double.self, forKey: .latestResponseWattHours) ?? 0
         responseCount = try container.decodeIfPresent(Int.self, forKey: .responseCount) ?? 0
         analogy = try container.decode(String.self, forKey: .analogy)
-        promptRecommendation = try container.decode(String.self, forKey: .promptRecommendation)
     }
 
     static let preview = EnergyUsageSnapshot(
@@ -57,7 +52,6 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
         electricityWattHours: Metric(input: 0.053, output: 0.033, total: 0.086),
         latestResponseWattHours: 0.086,
         analogy: "That response used about 0.086 Wh, roughly the energy needed to charge wireless earbuds for a short while.",
-        promptRecommendation: "State your goal, essential context, and desired format in one focused prompt. Remove repeated background details and ask for a concise answer first—you can always request more depth afterward."
     )
 
     /// Starting state for a fresh session, before any response has streamed back.
@@ -66,8 +60,7 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
         electricityWattHours: Metric(input: 0, output: 0, total: 0),
         latestResponseWattHours: 0,
         responseCount: 0,
-        analogy: "Send a message to see the energy footprint of your first response.",
-        promptRecommendation: EnergyUsageSnapshot.preview.promptRecommendation
+        analogy: "Send a message to see the energy footprint of your first response."
     )
 
     /// Folds one response's usage into the running daily snapshot.
@@ -93,8 +86,7 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
                 ),
                 latestResponseWattHours: responseWattHours,
                 responseCount: responseCount + 1,
-                analogy: EnergyAnalogyGenerator.text(forWattHours: responseWattHours, responseNumber: responseCount + 1),
-                promptRecommendation: promptRecommendation
+                analogy: EnergyAnalogyGenerator.text(forWattHours: responseWattHours, responseNumber: responseCount + 1)
             )
         }
 
@@ -132,8 +124,7 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
             ),
             latestResponseWattHours: responseWattHours,
             responseCount: responseCount + 1,
-            analogy: EnergyAnalogyGenerator.text(forWattHours: responseWattHours, responseNumber: responseCount + 1),
-            promptRecommendation: promptRecommendation
+            analogy: EnergyAnalogyGenerator.text(forWattHours: responseWattHours, responseNumber: responseCount + 1)
         )
     }
 

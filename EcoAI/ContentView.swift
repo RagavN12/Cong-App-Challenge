@@ -66,14 +66,7 @@ struct ContentView: View {
             .frame(minWidth: 480, maxWidth: .infinity)
 
             if showEnergyUsage {
-                EnergySidebar(
-                    energy: $energy,
-                    usage: energyUsage,
-                    promptAdvice: chatStore.promptAdviceState(for: selectedChatID),
-                    onRequestPromptAdvice: {
-                        chatStore.requestPromptAdvice(for: selectedChatID)
-                    }
-                )
+                EnergySidebar(energy: $energy, usage: energyUsage)
                     .frame(minWidth: 200, idealWidth: 248, maxWidth: 400)
             }
         }

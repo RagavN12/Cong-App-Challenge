@@ -105,22 +105,6 @@ nonisolated struct LLMStreamRequest: Codable, Sendable {
     }
 }
 
-nonisolated struct PromptCoachRequest: Codable, Sendable {
-    let requestID: UUID
-    let threadID: UUID
-    let messages: [LLMMessagePayload]
-
-    enum CodingKeys: String, CodingKey {
-        case requestID = "request_id"
-        case threadID = "thread_id"
-        case messages
-    }
-}
-
-nonisolated struct PromptCoachResponse: Codable, Sendable {
-    let advice: String
-}
-
 /// Token counts the Worker reports back once OpenRouter's streamed usage
 /// chunk arrives (typically alongside the final `finish_reason`).
 nonisolated struct LLMUsagePayload: Codable, Sendable {
