@@ -171,8 +171,7 @@ struct EnergySidebar: View {
                     .background(Color.primary.opacity(0.055), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(promptAdvice == .unavailable)
-                .help(promptAdvice == .loaded("") || showPromptTip ? "Hide recommendation" : "Get energy recommendation")
+                .help(showPromptTip ? "Hide recommendation" : "Get energy recommendation")
             }
 
             if showPromptTip {

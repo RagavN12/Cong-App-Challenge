@@ -19,6 +19,7 @@ const FREE_MODELS = {
 };
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
+const PROMPT_COACH_MODEL = "openrouter/free";
 
 // --- Structured logging -----------------------------------------------
 // Cloudflare's Observability / Workers Logs feature (enabled via
@@ -182,7 +183,6 @@ export default {
         return json({ error: "Server misconfigured" }, 500);
       }
 
-      const coachModel = FREE_MODELS[env.COACH_MODEL_ID] ?? FREE_MODELS.auto;
       const coachPrompt = [
         {
           role: "system",
@@ -194,7 +194,7 @@ export default {
       log("info", id, "coach.routed", {
         clientRequestId: body.request_id,
         threadId: body.thread_id,
-        model: coachModel,
+        model: PROMPT_COACH_MODEL,
         messageCount: body.messages.length
       });
 
@@ -211,7 +211,7 @@ export default {
               "X-Title": "EcoAI Prompt Coach"
             },
             body: JSON.stringify({
-              model: coachModel,
+              model: PROMPT_COACH_MODEL,
               messages: coachPrompt,
               max_tokens: 220,
               temperature: 0.2,
