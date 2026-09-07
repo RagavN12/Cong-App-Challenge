@@ -17,9 +17,7 @@
     "AUTH0_DOMAIN": "dev-bg7lc3xvb0dth1f2.us.auth0.com",
     "AUTH0_AUDIENCE": "https://api.ecoai.app",
     // Fallback model when the client doesn't recognize the requested id.
-    "DEFAULT_MODEL_ID": "auto",
-    // Small, non-streaming model used by the prompt coach.
-    "COACH_MODEL_ID": "auto"
+    "DEFAULT_MODEL_ID": "auto"
   }
   // Secrets (never put these here — set them with `wrangler secret put <NAME>`):
   //   OPENROUTER_API_KEY
