@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		8167F73F300C2A9B0006FB2B /* Auth0 in Frameworks */ = {isa = PBXBuildFile; productRef = 8167F73E300C2A9B0006FB2B /* Auth0 */; };
+		905D0E75304E4F2700F533F5 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 905D0E74304E4F2700F533F5 /* MarkdownUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8167F73F300C2A9B0006FB2B /* Auth0 in Frameworks */,
+				905D0E75304E4F2700F533F5 /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,6 +86,7 @@
 			name = EcoAI;
 			packageProductDependencies = (
 				8167F73E300C2A9B0006FB2B /* Auth0 */,
+				905D0E74304E4F2700F533F5 /* MarkdownUI */,
 			);
 			productName = EcoAI;
 			productReference = 90350E57300C044D002CCA28 /* EcoAI.app */;
@@ -115,6 +118,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				8167F73D300C2A9B0006FB2B /* XCRemoteSwiftPackageReference "Auth0" */,
+				905D0E73304E4F2700F533F5 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 90350E58300C044D002CCA28 /* Products */;
@@ -371,6 +375,14 @@
 				minimumVersion = 3.0.0;
 			};
 		};
+		905D0E73304E4F2700F533F5 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -378,6 +390,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 8167F73D300C2A9B0006FB2B /* XCRemoteSwiftPackageReference "Auth0" */;
 			productName = Auth0;
+		};
+		905D0E74304E4F2700F533F5 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 905D0E73304E4F2700F533F5 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
