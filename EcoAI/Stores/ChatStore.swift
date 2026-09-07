@@ -1,18 +1,34 @@
 import Combine
+import CryptoKit
 import Foundation
+
+enum PromptAdviceState: Equatable, Sendable {
+    case unavailable
+    case loading
+    case loaded(String)
+    case failed(String)
+}
 
 @MainActor
 final class ChatStore: ObservableObject {
     @Published private(set) var chats: [ChatThread]
     @Published private(set) var respondingChatIDs: Set<ChatThread.ID> = []
     @Published private(set) var lastError: String?
+    @Published private(set) var promptAdviceStates: [ChatThread.ID: PromptAdviceState] = [:]
 
     private let accessPoint: CloudflareAccessPoint
     private let repository: ChatLocalRepository
     private let energyUsageStore: EnergyUsageStore
     private var responseTasks: [ChatThread.ID: Task<Void, Never>] = [:]
+    private var promptAdviceTasks: [ChatThread.ID: Task<Void, Never>] = [:]
+    private var promptAdviceCache: [ChatThread.ID: CachedPromptAdvice] = [:]
     private var persistenceTask: Task<Void, Never>?
     private var hasLoaded = false
+
+    private struct CachedPromptAdvice {
+        let historyFingerprint: String
+        let advice: String
+    }
 
     init(
         accessPoint: CloudflareAccessPoint,
@@ -28,6 +44,7 @@ final class ChatStore: ObservableObject {
 
     deinit {
         responseTasks.values.forEach { $0.cancel() }
+        promptAdviceTasks.values.forEach { $0.cancel() }
     }
 
     func load() async {
@@ -53,6 +70,49 @@ final class ChatStore: ObservableObject {
     func isResponding(in chatID: ChatThread.ID?) -> Bool {
         guard let chatID else { return false }
         return respondingChatIDs.contains(chatID)
+    }
+
+    func promptAdviceState(for chatID: ChatThread.ID?) -> PromptAdviceState {
+        guard let chatID else { return .unavailable }
+        return promptAdviceStates[chatID] ?? .unavailable
+    }
+
+    func requestPromptAdvice(for chatID: ChatThread.ID?) {
+        guard let chatID,
+              let thread = chat(withID: chatID),
+              !thread.messages.isEmpty,
+              !respondingChatIDs.contains(chatID) else { return }
+
+        let fingerprint = historyFingerprint(for: thread)
+        if let cached = promptAdviceCache[chatID], cached.historyFingerprint == fingerprint {
+            promptAdviceStates[chatID] = .loaded(cached.advice)
+            return
+        }
+        if promptAdviceStates[chatID] == .loading { return }
+
+        promptAdviceTasks[chatID]?.cancel()
+        promptAdviceStates[chatID] = .loading
+
+        let request = PromptCoachRequest(
+            requestID: UUID(),
+            threadID: chatID,
+            messages: thread.messages.map(LLMMessagePayload.init)
+        )
+        let task = Task { [weak self, accessPoint] in
+            do {
+                let response = try await accessPoint.fetchPromptAdvice(request: request)
+                self?.completePromptAdvice(
+                    for: chatID,
+                    fingerprint: fingerprint,
+                    advice: response.advice
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.failPromptAdvice(for: chatID, error: error)
+            }
+        }
+        promptAdviceTasks[chatID] = task
     }
 
     @discardableResult
@@ -117,6 +177,10 @@ final class ChatStore: ObservableObject {
 
     func delete(_ chatID: ChatThread.ID) {
         cancelResponse(in: chatID)
+        promptAdviceTasks[chatID]?.cancel()
+        promptAdviceTasks[chatID] = nil
+        promptAdviceCache[chatID] = nil
+        promptAdviceStates[chatID] = nil
         chats.removeAll { $0.id == chatID }
         persistSoon()
     }
@@ -135,6 +199,7 @@ final class ChatStore: ObservableObject {
     private func append(_ message: ChatMessage, to threadID: ChatThread.ID) {
         guard let index = chats.firstIndex(where: { $0.id == threadID }) else { return }
         chats[index].messages.append(message)
+        invalidatePromptAdvice(for: threadID)
     }
 
     private func updateMessage(
@@ -145,11 +210,13 @@ final class ChatStore: ObservableObject {
         guard let threadIndex = chats.firstIndex(where: { $0.id == threadID }),
               let messageIndex = chats[threadIndex].messages.firstIndex(where: { $0.id == messageID }) else { return }
         update(&chats[threadIndex].messages[messageIndex])
+          invalidatePromptAdvice(for: threadID)
     }
 
     private func removeEmptyMessage(_ messageID: ChatMessage.ID, from threadID: ChatThread.ID) {
         guard let index = chats.firstIndex(where: { $0.id == threadID }) else { return }
         chats[index].messages.removeAll { $0.id == messageID && $0.content.isEmpty }
+        invalidatePromptAdvice(for: threadID)
     }
 
     private func markMessageFailed(_ messageID: ChatMessage.ID, in threadID: ChatThread.ID, error: Error) {
@@ -168,6 +235,39 @@ final class ChatStore: ObservableObject {
         respondingChatIDs.remove(threadID)
         responseTasks[threadID] = nil
         persistSoon()
+    }
+
+    private func completePromptAdvice(
+        for chatID: ChatThread.ID,
+        fingerprint: String,
+        advice: String
+    ) {
+        promptAdviceTasks[chatID] = nil
+        guard let thread = chat(withID: chatID),
+              historyFingerprint(for: thread) == fingerprint else { return }
+
+        promptAdviceCache[chatID] = CachedPromptAdvice(
+            historyFingerprint: fingerprint,
+            advice: advice
+        )
+        promptAdviceStates[chatID] = .loaded(advice)
+    }
+
+    private func failPromptAdvice(for chatID: ChatThread.ID, error: Error) {
+        promptAdviceTasks[chatID] = nil
+        promptAdviceStates[chatID] = .failed(error.localizedDescription)
+    }
+
+    private func invalidatePromptAdvice(for chatID: ChatThread.ID) {
+        promptAdviceTasks[chatID]?.cancel()
+        promptAdviceTasks[chatID] = nil
+        promptAdviceCache[chatID] = nil
+        promptAdviceStates[chatID] = .unavailable
+    }
+
+    private func historyFingerprint(for thread: ChatThread) -> String {
+        let data = (try? JSONEncoder().encode(thread.messages)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func title(for prompt: String) -> String {
