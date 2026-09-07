@@ -155,6 +155,24 @@ actor CloudflareAccessPoint {
         try decoder.decode(LLMStreamEvent.self, from: data)
     }
 
+    func fetchPromptAdvice(request: PromptCoachRequest) async throws -> PromptCoachResponse {
+        var urlRequest = try await authorizedRequest(
+            path: "v1/chat/coach",
+            method: "POST",
+            body: try encoder.encode(request)
+        )
+        urlRequest.timeoutInterval = TimeInterval(configuration.streamTimeout.components.seconds)
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudflareAccessError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CloudflareAccessError.server(statusCode: http.statusCode)
+        }
+        return try decoder.decode(PromptCoachResponse.self, from: data)
+    }
+
     /// Creates a Worker request with a current Auth0 access token. Used for
     /// simple JSON endpoints like GET /v1/models; the streaming endpoint
     /// builds its own request in `streamAIResponse` above.
