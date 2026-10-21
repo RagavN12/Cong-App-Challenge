@@ -1,16 +1,12 @@
 import SwiftUI
 
 struct EnergySidebar: View {
-    @Binding var energy: Double
     let usage: EnergyUsageSnapshot
+    let budget: EnergyBudget
 
-    init(
-        energy: Binding<Double>,
-        usage: EnergyUsageSnapshot = .preview
-    ) {
-        _energy = energy
-        self.usage = usage
-    }
+    private var fraction: Double { max(usage.electricityWattHours.total, 0) / budget.limitWattHours }
+    private var limitReached: Bool { fraction >= 1 }
+    private var gaugeColor: Color { limitReached ? .orange : .green }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,7 +14,7 @@ struct EnergySidebar: View {
                 Text("Energy usage")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text("Today")
+                Text(budget.period.sidebarTitle)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
@@ -33,7 +29,7 @@ struct EnergySidebar: View {
                     energyGauge
 
                     UsageMetricCard(
-                        title: "Daily tokens",
+                        title: "\(budget.period.title) tokens",
                         icon: "text.word.spacing",
                         tint: .blue,
                         metric: usage.tokens,
@@ -41,7 +37,7 @@ struct EnergySidebar: View {
                     )
 
                     UsageMetricCard(
-                        title: "Daily electricity",
+                        title: "\(budget.period.title) electricity",
                         icon: "bolt.fill",
                         tint: .orange,
                         metric: usage.electricityWattHours,
@@ -63,28 +59,39 @@ struct EnergySidebar: View {
                 Circle()
                     .stroke(Color.primary.opacity(0.07), lineWidth: 10)
                 Circle()
-                    .trim(from: 0, to: energy / 100)
+                    .trim(from: 0, to: min(fraction, 1))
                     .stroke(
-                        AngularGradient(colors: [.green, .mint, .green], center: .center),
+                        AngularGradient(colors: [gaugeColor, gaugeColor.opacity(0.65), gaugeColor], center: .center),
                         style: StrokeStyle(lineWidth: 10, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .animation(.easeInOut(duration: 0.25), value: energy)
+                    .animation(.easeInOut(duration: 0.25), value: fraction)
 
                 VStack(spacing: 1) {
-                    Text("\(Int(energy))%")
+                    Text(fraction, format: .percent.precision(.fractionLength(0)))
                         .font(.system(size: 25, weight: .semibold, design: .rounded))
                         .contentTransition(.numericText())
-                    Text("available")
+                    Text("of limit used")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
             }
             .frame(width: 116, height: 116)
 
-            Slider(value: $energy, in: 1...100, step: 1)
-                .tint(.green)
-                .accessibilityLabel("Available energy")
+            VStack(spacing: 7) {
+                ProgressView(value: min(fraction, 1))
+                    .tint(gaugeColor)
+                    .accessibilityLabel("Energy limit used")
+                Text("\(Self.formatElectricity(usage.electricityWattHours.total)) of \(Self.formatElectricity(budget.limitWattHours))")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if limitReached {
+                    Text("Limit reached — new messages paused")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)

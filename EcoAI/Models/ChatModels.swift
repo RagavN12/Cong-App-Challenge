@@ -6,33 +6,6 @@ nonisolated enum ChatRole: String, Codable, Sendable {
     case system
 }
 
-/// Free-tier OpenRouter models the Worker is allowed to route to. The
-/// rawValue is what's sent to the Worker as `model` — it must match a key in
-/// the Worker's `FREE_MODELS` map in src/index.js. Keep these two in sync.
-nonisolated enum AIModel: String, Codable, CaseIterable, Identifiable, Sendable {
-    case auto
-    case qwen3Coder = "qwen3-coder"
-    case gptOss20b = "gpt-oss-20b"
-    case google = "google"
-    case inclusionAILing = "inclusionAI: Ling 3.0 Flash Sante (free)"
-    case poolsideLaguna = "Poolside: Laguna S 2.1 (free)"
-    case googleGemma4 = "Google: Gemma 4 26B A4B (free)"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .auto: "Auto (free)"
-        case .qwen3Coder: "Qwen3 Reranker 8B"
-        case .gptOss20b: "Nemotron 3.5 Lightning"
-        case .google: "Nemotron 3.5 Content Safety"
-        case .inclusionAILing: "Ling 3.0 Flash Sante"
-        case .poolsideLaguna: "Laguna S 2.1"
-        case .googleGemma4: "Gemma 4 26B A4B"
-        }
-    }
-}
-
 nonisolated struct ChatMessage: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     let role: ChatRole
@@ -96,13 +69,11 @@ nonisolated struct LLMMessagePayload: Codable, Sendable {
 nonisolated struct LLMStreamRequest: Codable, Sendable {
     let requestID: UUID
     let threadID: UUID
-    let model: AIModel
     let messages: [LLMMessagePayload]
 
     enum CodingKeys: String, CodingKey {
         case requestID = "request_id"
         case threadID = "thread_id"
-        case model
         case messages
     }
 }
@@ -136,6 +107,8 @@ nonisolated struct LLMStreamEvent: Codable, Sendable {
     let finishReason: String?
     let usage: LLMUsagePayload?
     let energy: LLMEnergyPayload?
+    let error: String?
+    let retryable: Bool?
 
     enum CodingKeys: String, CodingKey {
         case requestID = "request_id"
@@ -143,6 +116,8 @@ nonisolated struct LLMStreamEvent: Codable, Sendable {
         case finishReason = "finish_reason"
         case usage
         case energy = "energy_wh"
+        case error
+        case retryable
     }
 
     init(
@@ -150,13 +125,17 @@ nonisolated struct LLMStreamEvent: Codable, Sendable {
         delta: String,
         finishReason: String?,
         usage: LLMUsagePayload? = nil,
-        energy: LLMEnergyPayload? = nil
+        energy: LLMEnergyPayload? = nil,
+        error: String? = nil,
+        retryable: Bool? = nil
     ) {
         self.requestID = requestID
         self.delta = delta
         self.finishReason = finishReason
         self.usage = usage
         self.energy = energy
+        self.error = error
+        self.retryable = retryable
     }
 
     init(from decoder: Decoder) throws {
@@ -165,6 +144,8 @@ nonisolated struct LLMStreamEvent: Codable, Sendable {
         delta = try container.decode(String.self, forKey: .delta)
         finishReason = try container.decodeIfPresent(String.self, forKey: .finishReason)
         usage = try container.decodeIfPresent(LLMUsagePayload.self, forKey: .usage)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        retryable = try container.decodeIfPresent(Bool.self, forKey: .retryable)
 
         if let structuredEnergy = try? container.decodeIfPresent(LLMEnergyPayload.self, forKey: .energy) {
             energy = structuredEnergy

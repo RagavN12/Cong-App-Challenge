@@ -63,6 +63,22 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
         analogy: "Send a message to see the energy footprint of your first response."
     )
 
+    static func combining(_ days: [EnergyUsageSnapshot]) -> EnergyUsageSnapshot {
+        func sum(_ metric: (EnergyUsageSnapshot) -> Metric) -> Metric {
+            Metric(input: days.reduce(0) { $0 + metric($1).input },
+                   output: days.reduce(0) { $0 + metric($1).output },
+                   total: days.reduce(0) { $0 + metric($1).total })
+        }
+        let latest = days.last { $0.responseCount > 0 } ?? .zero
+        return EnergyUsageSnapshot(
+            tokens: sum { $0.tokens },
+            electricityWattHours: sum { $0.electricityWattHours },
+            latestResponseWattHours: latest.latestResponseWattHours,
+            responseCount: days.reduce(0) { $0 + $1.responseCount },
+            analogy: latest.analogy
+        )
+    }
+
     /// Folds one response's usage into the running daily snapshot.
     func adding(usage: LLMUsagePayload, energy: LLMEnergyPayload?) -> EnergyUsageSnapshot {
         if let energy {
@@ -130,7 +146,7 @@ nonisolated struct EnergyUsageSnapshot: Codable, Equatable, Sendable {
 
 }
 
-private enum EnergyAnalogyGenerator {
+nonisolated private enum EnergyAnalogyGenerator {
     static func text(forWattHours wattHours: Double, responseNumber: Int) -> String {
         let value = String(format: "%.3f", wattHours)
         let templates = [

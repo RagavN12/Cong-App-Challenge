@@ -1,8 +1,40 @@
 import Foundation
 
 nonisolated struct PersistedEnergyUsage: Codable, Sendable {
-    let dayKey: String
-    let snapshot: EnergyUsageSnapshot
+    let budget: EnergyBudget
+    let days: [String: EnergyUsageSnapshot]
+    let acknowledgedLimitPeriod: String?
+
+    init(budget: EnergyBudget, days: [String: EnergyUsageSnapshot], acknowledgedLimitPeriod: String? = nil) {
+        self.budget = budget
+        self.days = days
+        self.acknowledgedLimitPeriod = acknowledgedLimitPeriod
+    }
+
+    private enum CodingKeys: String, CodingKey { case budget, days, dayKey, snapshot, acknowledgedLimitPeriod }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        budget = try values.decodeIfPresent(EnergyBudget.self, forKey: .budget) ?? EnergyBudget()
+        acknowledgedLimitPeriod = try values.decodeIfPresent(String.self, forKey: .acknowledgedLimitPeriod)
+        guard budget.isValid else {
+            throw DecodingError.dataCorruptedError(forKey: .budget, in: values, debugDescription: "Invalid energy limit")
+        }
+        if let ledger = try values.decodeIfPresent([String: EnergyUsageSnapshot].self, forKey: .days) {
+            days = ledger
+        } else {
+            // Preserve the old daily snapshot when upgrading an existing account.
+            let key = try values.decode(String.self, forKey: .dayKey)
+            days = [key: try values.decode(EnergyUsageSnapshot.self, forKey: .snapshot)]
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(budget, forKey: .budget)
+        try values.encode(days, forKey: .days)
+        try values.encodeIfPresent(acknowledgedLimitPeriod, forKey: .acknowledgedLimitPeriod)
+    }
 }
 
 /// Atomic on-device persistence for the daily energy panel. This can later be

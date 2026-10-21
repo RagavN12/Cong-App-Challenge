@@ -10,8 +10,7 @@ import SwiftUI
 
 @main
 struct EcoAIApp: App {
-    @StateObject private var chatStore: ChatStore
-    @StateObject private var energyUsageStore: EnergyUsageStore
+    @StateObject private var accountDataStore: AccountDataStore
     @StateObject private var sessionStore: SessionStore
     @AppStorage("appearance.theme") private var appTheme = AppTheme.system
     @AppStorage("panels.chatHistory.visible") private var showChatHistory = true
@@ -19,20 +18,11 @@ struct EcoAIApp: App {
 
     init() {
         let sessionStore = SessionStore()
-        let energyUsageStore = EnergyUsageStore(repository: EnergyUsageRepository())
         let accessPoint = CloudflareAccessPoint(
             configuration: .production(),
             tokenProvider: sessionStore
         )
-        let repository = ChatLocalRepository()
-        _chatStore = StateObject(
-            wrappedValue: ChatStore(
-                accessPoint: accessPoint,
-                repository: repository,
-                energyUsageStore: energyUsageStore
-            )
-        )
-        _energyUsageStore = StateObject(wrappedValue: energyUsageStore)
+        _accountDataStore = StateObject(wrappedValue: AccountDataStore(accessPoint: accessPoint))
         _sessionStore = StateObject(wrappedValue: sessionStore)
     }
 
@@ -45,21 +35,25 @@ struct EcoAIApp: App {
                             .controlSize(.small)
                             .frame(minWidth: 760, minHeight: 640)
                     } else if sessionStore.isAuthenticated {
-                        ContentView(
-                            chatStore: chatStore,
-                            user: sessionStore.user,
-                            energyUsage: energyUsageStore.snapshot,
-                            appTheme: $appTheme,
-                            showChatHistory: $showChatHistory,
-                            showEnergyUsage: $showEnergyUsage,
-                            onLogout: {
-                                chatStore.cancelAllResponses()
-                                Task {
-                                    await sessionStore.logOut()
+                        if let account = accountDataStore.account,
+                           account.userID == sessionStore.user?.id {
+                            AccountContentView(
+                                chatStore: account.chats,
+                                energyUsageStore: account.energy,
+                                user: sessionStore.user,
+                                appTheme: $appTheme,
+                                showChatHistory: $showChatHistory,
+                                showEnergyUsage: $showEnergyUsage,
+                                onLogout: {
+                                    accountDataStore.activate(userID: nil)
+                                    Task { await sessionStore.logOut() }
                                 }
-                            }
-                        )
-                        .transition(.opacity)
+                            )
+                            .id(account.userID)
+                        } else {
+                            ProgressView("Opening your account…")
+                                .frame(minWidth: 760, minHeight: 640)
+                        }
                     } else {
                         LoginView(
                             appTheme: $appTheme,
@@ -78,7 +72,9 @@ struct EcoAIApp: App {
             }
             .task {
                 await sessionStore.restoreSession()
-                await energyUsageStore.load()
+            }
+            .onChange(of: sessionStore.isAuthenticated && !sessionStore.isWorking ? sessionStore.user?.id : nil, initial: true) { _, userID in
+                accountDataStore.activate(userID: userID)
             }
         }
         .defaultSize(width: 1200, height: 760)
@@ -90,6 +86,45 @@ struct EcoAIApp: App {
                 Toggle("Energy Usage", isOn: $showEnergyUsage)
                     .keyboardShortcut("2", modifiers: [.command, .option])
             }
+        }
+    }
+}
+
+private struct AccountContentView: View {
+    @ObservedObject var chatStore: ChatStore
+    @ObservedObject var energyUsageStore: EnergyUsageStore
+    let user: AuthenticatedUser?
+    @Binding var appTheme: AppTheme
+    @Binding var showChatHistory: Bool
+    @Binding var showEnergyUsage: Bool
+    let onLogout: () -> Void
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ContentView(
+                chatStore: chatStore,
+                user: user,
+                energyUsageStore: energyUsageStore,
+                appTheme: $appTheme,
+                showChatHistory: $showChatHistory,
+                showEnergyUsage: $showEnergyUsage,
+                onLogout: onLogout,
+                onRetryStorage: chatStore.loadState == .failed || energyUsageStore.loadState == .failed ? {
+                    Task {
+                        await energyUsageStore.load()
+                        await chatStore.load()
+                    }
+                } : nil
+            )
+        }
+        .task { await energyUsageStore.load() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { energyUsageStore.refreshPeriod() }
+        }
+        .transientNotification(message: chatStore.lastError ?? energyUsageStore.lastError) {
+            if chatStore.lastError != nil { chatStore.dismissError() }
+            else { energyUsageStore.dismissError() }
         }
     }
 }

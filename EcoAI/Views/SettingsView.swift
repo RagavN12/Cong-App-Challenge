@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct SettingsView: View {
-    private enum Pane: String, CaseIterable, Identifiable {
+    enum Pane: String, CaseIterable, Identifiable {
         case general = "General"
+        case energyLimits = "Energy Limits"
         case data = "Data & Privacy"
         case account = "Account"
 
@@ -11,6 +12,7 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .general: "gearshape"
+            case .energyLimits: "bolt.circle"
             case .data: "hand.raised"
             case .account: "person.crop.circle"
             }
@@ -19,14 +21,32 @@ struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     let user: AuthenticatedUser?
+    @ObservedObject var energyUsageStore: EnergyUsageStore
     @Binding var appTheme: AppTheme
     @Binding var showChatHistory: Bool
     @Binding var showEnergyUsage: Bool
-    @Binding var selectedModel: AIModel
     let onLogout: () -> Void
 
     @State private var selectedPane = Pane.general
     @State private var showDeleteAccountWarning = false
+
+    init(
+        user: AuthenticatedUser?,
+        energyUsageStore: EnergyUsageStore,
+        appTheme: Binding<AppTheme>,
+        showChatHistory: Binding<Bool>,
+        showEnergyUsage: Binding<Bool>,
+        onLogout: @escaping () -> Void,
+        initialPane: Pane = .general
+    ) {
+        self.user = user
+        self.energyUsageStore = energyUsageStore
+        _appTheme = appTheme
+        _showChatHistory = showChatHistory
+        _showEnergyUsage = showEnergyUsage
+        self.onLogout = onLogout
+        _selectedPane = State(initialValue: initialPane)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -118,6 +138,8 @@ struct SettingsView: View {
         switch selectedPane {
         case .general:
             generalPane
+        case .energyLimits:
+            EnergyLimitsSettingsView(store: energyUsageStore)
         case .data:
             dataPane
         case .account:
@@ -182,18 +204,7 @@ struct SettingsView: View {
                 .settingsCard()
             }
 
-            SettingsSection(
-                title: "Default model",
-                description: "The model selected when starting a conversation."
-            ) {
-                Picker("Model", selection: $selectedModel) {
-                    ForEach(AIModel.allCases) { model in
-                        Text(model.displayName).tag(model)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 180, alignment: .leading)
-            }
+
         }
     }
 

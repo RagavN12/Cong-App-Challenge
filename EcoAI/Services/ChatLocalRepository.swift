@@ -6,13 +6,16 @@ actor ChatLocalRepository {
     private let storageURL: URL
     private let legacyDefaults: UserDefaults
     private let legacyStorageKey = "ecoai.chat-history.v1"
+    private let migrateLegacyDefaults: Bool
 
     init(
         storageURL: URL? = nil,
-        legacyDefaults: UserDefaults = .standard
+        legacyDefaults: UserDefaults = .standard,
+        migrateLegacyDefaults: Bool = true
     ) {
         self.storageURL = storageURL ?? Self.defaultStorageURL()
         self.legacyDefaults = legacyDefaults
+        self.migrateLegacyDefaults = migrateLegacyDefaults
     }
 
     func load() throws -> [ChatThread]? {
@@ -25,7 +28,7 @@ actor ChatLocalRepository {
         }
 
         // One-time migration from the original UserDefaults implementation.
-        if let legacyData = legacyDefaults.data(forKey: legacyStorageKey) {
+        if migrateLegacyDefaults, let legacyData = legacyDefaults.data(forKey: legacyStorageKey) {
             let chats = try decoder.decode([ChatThread].self, from: legacyData)
             try save(chats)
             legacyDefaults.removeObject(forKey: legacyStorageKey)

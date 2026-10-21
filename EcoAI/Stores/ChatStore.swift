@@ -6,42 +6,59 @@ final class ChatStore: ObservableObject {
     @Published private(set) var chats: [ChatThread]
     @Published private(set) var respondingChatIDs: Set<ChatThread.ID> = []
     @Published private(set) var lastError: String?
+    @Published private(set) var responseStatuses: [ChatThread.ID: String] = [:]
+    @Published private(set) var loadState: StorageLoadState = .notLoaded
 
     private let accessPoint: CloudflareAccessPoint
     private let repository: ChatLocalRepository
     private let energyUsageStore: EnergyUsageStore
-    private var responseTasks: [ChatThread.ID: Task<Void, Never>] = [:]
+    private let retryPolicy: ResponseRetryPolicy
+    private struct ActiveResponse {
+        let requestID: UUID
+        let messageID: UUID
+        let task: Task<Void, Never>
+    }
+    private var responseTasks: [ChatThread.ID: ActiveResponse] = [:]
     private var persistenceTask: Task<Void, Never>?
-    private var hasLoaded = false
+    private var isActive = true
+
+    var canSendMessages: Bool {
+        isActive && loadState == .loaded && energyUsageStore.isReady && !energyUsageStore.isLimitReached
+    }
 
     init(
         accessPoint: CloudflareAccessPoint,
         repository: ChatLocalRepository,
         energyUsageStore: EnergyUsageStore,
-        seedChats: [ChatThread] = ChatStore.sampleChats
+        seedChats: [ChatThread] = ChatStore.sampleChats,
+        retryPolicy: ResponseRetryPolicy = .standard
     ) {
         self.accessPoint = accessPoint
         self.repository = repository
         self.energyUsageStore = energyUsageStore
         self.chats = seedChats
+        self.retryPolicy = retryPolicy
     }
 
     deinit {
-        responseTasks.values.forEach { $0.cancel() }
+        responseTasks.values.forEach { $0.task.cancel() }
     }
 
     func load() async {
-        guard !hasLoaded else { return }
-        hasLoaded = true
+        guard isActive, loadState != .loaded, loadState != .loading else { return }
+        loadState = .loading
+        lastError = nil
 
         do {
-            if let persistedChats = try await repository.load() {
+            let persistedChats = try await repository.load()
+            guard isActive else { return }
+            if let persistedChats {
                 chats = persistedChats
-            } else {
-                await persist()
             }
+            loadState = .loaded
         } catch {
-            lastError = "Chat history could not be loaded."
+            loadState = .failed
+            lastError = "Chat history could not be loaded. Your saved file has been preserved. Retry to continue."
         }
     }
 
@@ -58,12 +75,13 @@ final class ChatStore: ObservableObject {
     @discardableResult
     func sendMessage(
         _ prompt: String,
-        model: AIModel,
         selectedChatID: ChatThread.ID?
     ) -> ChatThread.ID? {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        energyUsageStore.refreshPeriod()
+        guard canSendMessages, !trimmed.isEmpty else { return nil }
 
+        lastError = nil
         let threadID: ChatThread.ID
         if let selectedChatID,
            chats.contains(where: { $0.id == selectedChatID }),
@@ -83,7 +101,6 @@ final class ChatStore: ObservableObject {
         let request = LLMStreamRequest(
             requestID: UUID(),
             threadID: threadID,
-            model: model,
             messages: thread.messages.map(LLMMessagePayload.init)
         )
         let responseID = UUID()
@@ -91,45 +108,92 @@ final class ChatStore: ObservableObject {
         respondingChatIDs.insert(threadID)
         persistSoon()
 
+        let policy = retryPolicy
         let task = Task { [weak self, accessPoint] in
             do {
-                let stream = await accessPoint.streamAIResponse(request: request)
-                for try await event in stream {
-                    guard event.requestID == request.requestID else { continue }
-                    self?.updateMessage(responseID, in: threadID) { message in
-                        message.content += event.delta
-                    }
-                    if let usage = event.usage {
-                        self?.energyUsageStore.recordResponse(usage: usage, energy: event.energy)
+                for attempt in 1...max(policy.maximumAttempts, 1) {
+                    try Task.checkCancellation()
+                    self?.energyUsageStore.refreshPeriod()
+                    if self?.energyUsageStore.isLimitReached == true { throw EnergyLimitError.reached }
+                    let attemptRequest = LLMStreamRequest(
+                        requestID: UUID(), threadID: request.threadID,
+                        messages: request.messages
+                    )
+                    do {
+                        let stream = await accessPoint.streamAIResponse(request: attemptRequest)
+                        for try await event in stream {
+                            try Task.checkCancellation()
+                            guard event.requestID == attemptRequest.requestID else { continue }
+                            guard self?.responseTasks[threadID]?.requestID == request.requestID else {
+                                throw CancellationError()
+                            }
+                            self?.updateMessage(responseID, in: threadID) { message in
+                                message.content += event.delta
+                            }
+                            if let usage = event.usage {
+                                self?.energyUsageStore.recordResponse(usage: usage, energy: event.energy)
+                            }
+                        }
+                        try Task.checkCancellation()
+                        break
+                    } catch {
+                        try Task.checkCancellation()
+                        guard attempt < policy.maximumAttempts, policy.shouldRetry(error) else { throw error }
+                        guard self?.responseTasks[threadID]?.requestID == request.requestID else {
+                            throw CancellationError()
+                        }
+                        self?.responseStatuses[threadID] = "Connection interrupted. Retrying \(attempt + 1) of \(policy.maximumAttempts)…"
+                        self?.updateMessage(responseID, in: threadID) { $0.content = "" }
+                        try await Task.sleep(for: policy.delay(after: attempt))
                     }
                 }
             } catch is CancellationError {
                 self?.removeEmptyMessage(responseID, from: threadID)
             } catch {
-                self?.markMessageFailed(responseID, in: threadID, error: error)
+                if Task.isCancelled {
+                    self?.removeEmptyMessage(responseID, from: threadID)
+                } else if self?.responseTasks[threadID]?.requestID == request.requestID {
+                    self?.markMessageFailed(responseID, in: threadID, error: error)
+                }
             }
-
-            self?.finishResponse(in: threadID)
+            self?.finishResponse(in: threadID, requestID: request.requestID)
         }
-        responseTasks[threadID] = task
+        responseTasks[threadID] = ActiveResponse(requestID: request.requestID, messageID: responseID, task: task)
         return threadID
     }
 
     func delete(_ chatID: ChatThread.ID) {
+        guard isActive, loadState == .loaded else { return }
         cancelResponse(in: chatID)
         chats.removeAll { $0.id == chatID }
         persistSoon()
     }
 
     func cancelResponse(in chatID: ChatThread.ID) {
-        responseTasks[chatID]?.cancel()
-        responseTasks[chatID] = nil
+        guard let response = responseTasks.removeValue(forKey: chatID) else { return }
+        response.task.cancel()
         respondingChatIDs.remove(chatID)
+        responseStatuses[chatID] = nil
+        removeEmptyMessage(response.messageID, from: chatID)
+        persistSoon()
     }
 
     func cancelAllResponses() {
         let activeChatIDs = Array(responseTasks.keys)
         activeChatIDs.forEach(cancelResponse)
+    }
+
+    func deactivate() {
+        cancelAllResponses()
+        isActive = false
+    }
+
+    func dismissError() {
+        lastError = nil
+    }
+
+    func flush() async {
+        await persistenceTask?.value
     }
 
     private func append(_ message: ChatMessage, to threadID: ChatThread.ID) {
@@ -164,8 +228,10 @@ final class ChatStore: ObservableObject {
         lastError = error.localizedDescription
     }
 
-    private func finishResponse(in threadID: ChatThread.ID) {
+    private func finishResponse(in threadID: ChatThread.ID, requestID: UUID) {
+        guard responseTasks[threadID]?.requestID == requestID else { return }
         respondingChatIDs.remove(threadID)
+        responseStatuses[threadID] = nil
         responseTasks[threadID] = nil
         persistSoon()
     }
@@ -177,25 +243,16 @@ final class ChatStore: ObservableObject {
     }
 
     private func persistSoon() {
-        persistenceTask?.cancel()
+        guard isActive, loadState == .loaded else { return }
+        let previousSave = persistenceTask
         let snapshot = chats
         persistenceTask = Task { [weak self, repository] in
+            await previousSave?.value
             do {
-                try Task.checkCancellation()
                 try await repository.save(snapshot)
-            } catch is CancellationError {
-                return
             } catch {
                 self?.lastError = "Chat history could not be saved."
             }
-        }
-    }
-
-    private func persist() async {
-        do {
-            try await repository.save(chats)
-        } catch {
-            lastError = "Chat history could not be saved."
         }
     }
 

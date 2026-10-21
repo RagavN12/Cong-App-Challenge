@@ -1,19 +1,9 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { SSEParser } from "./sse.js";
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 
-const FREE_MODELS = {
-  auto: "openrouter/free",
-  // Keep the client-facing ids stable while routing to models currently
-  // published by OpenRouter's free tier.
-  "qwen3-coder": "qwen/qwen3-reranker-8b",
-  "gpt-oss-20b": "nvidia/nemotron-3.5-lightning:free",
-  "google": "nvidia/nemotron-3.5-content-safety:free",
-  "inclusionAI: Ling 3.0 Flash Sante (free)": "inclusionai/ling-3.0-flash-sante:free",
-  "Poolside: Laguna S 2.1 (free)": "poolside/laguna-s-2.1:free",
-  "Google: Gemma 4 26B A4B (free)": "google/gemma-4-26b-a4b-it:free"
-};
+const CHAT_MODEL = "openrouter/free";
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
 
@@ -138,7 +128,7 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/v1/models") {
-      const models = Object.keys(FREE_MODELS).map((mid) => ({ id: mid }));
+      const models = [{ id: CHAT_MODEL }];
       log("info", id, "response.sent", { status: 200, route: "/v1/models", modelCount: models.length });
       return json({ models });
     }
@@ -181,16 +171,9 @@ export default {
       return json({ error: "Invalid chat request" }, 422);
     }
 
-    const requestedModel = typeof body.model === "string" ? body.model : undefined;
-    const upstreamModel =
-      FREE_MODELS[requestedModel] ??
-      FREE_MODELS[env.DEFAULT_MODEL_ID] ??
-      FREE_MODELS.auto;
-
     log("info", id, "chat.routed", {
       clientRequestId: body.request_id,
-      requestedModel: requestedModel ?? null,
-      upstreamModel,
+      upstreamModel: CHAT_MODEL,
       messageCount: body.messages.length
     });
 
@@ -200,7 +183,7 @@ export default {
     }
 
     const openRouterStartedAt = Date.now();
-    log("info", id, "openrouter.request_started", { model: upstreamModel });
+    log("info", id, "openrouter.request_started", { model: CHAT_MODEL });
 
     const upstream = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -213,7 +196,7 @@ export default {
           "X-Title": "EcoAI"
         },
         body: JSON.stringify({
-          model: upstreamModel,
+          model: CHAT_MODEL,
           messages: body.messages.map(({ role, content }) => ({
             role,
             content
@@ -246,111 +229,12 @@ export default {
       }, 502);
     }
 
-    let deltaCount = 0;
-    let charCount = 0;
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = upstream.body.getReader();
-        let buffer = "";
-        let lastUsage = null;
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split("\n\n");
-            buffer = events.pop() || "";
-
-            for (const event of events) {
-              const line = event.split("\n").find((item) => item.startsWith("data:"));
-
-              if (!line) continue;
-
-              const data = line.slice(5).trim();
-              if (data === "[DONE]") continue;
-
-              try {
-                const chunk = JSON.parse(data);
-                const choice = chunk.choices?.[0];
-                const delta = choice?.delta?.content;
-
-                if (delta) {
-                  deltaCount += 1;
-                  charCount += delta.length;
-                  controller.enqueue(
-                    sse({
-                      request_id: body.request_id,
-                      delta,
-                      finish_reason: null
-                    })
-                  );
-                }
-
-                if (choice?.finish_reason) {
-                  log("info", id, "chat.finished", {
-                    finishReason: choice.finish_reason,
-                    deltaCount,
-                    charCount
-                  });
-                  controller.enqueue(
-                    sse({
-                      request_id: body.request_id,
-                      delta: "",
-                      finish_reason: choice.finish_reason,
-                      usage: null,
-                      energy_wh: null
-                    })
-                  );
-                }
-
-                // OpenRouter/OpenAI-style streams send usage in its own
-                // trailer chunk *after* the finish_reason chunk, with an
-                // empty `choices` array — so this has to be its own
-                // unconditional branch, not nested under `choice`.
-                if (chunk.usage) {
-                  lastUsage = chunk.usage;
-                  log("info", id, "chat.usage_received", {
-                    promptTokens: lastUsage.prompt_tokens,
-                    completionTokens: lastUsage.completion_tokens,
-                    totalTokens: lastUsage.total_tokens
-                  });
-                  controller.enqueue(
-                    sse({
-                      request_id: body.request_id,
-                      delta: "",
-                      finish_reason: null,
-                      usage: {
-                        prompt_tokens: lastUsage.prompt_tokens ?? 0,
-                        completion_tokens: lastUsage.completion_tokens ?? 0,
-                        total_tokens: lastUsage.total_tokens ?? 0
-                      },
-                      energy_wh: estimateWattHours(lastUsage)
-                    })
-                  );
-                }
-              } catch (parseError) {
-                log("warn", id, "chat.chunk_parse_failed", { message: parseError.message });
-              }
-            }
-          }
-
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
-          log("info", id, "response.sent", {
-            status: 200,
-            route: "/v1/chat/stream",
-            durationMs: Date.now() - startedAt
-          });
-        } catch (error) {
-          log("error", id, "chat.stream_failed", { message: error.message });
-          controller.error(error);
-        }
-        
-        reader.releaseLock();
-        
+    const stream = relayChatStream(upstream.body, body.request_id, (event, fields) => {
+      log(event === "chat.stream_failed" ? "error" : "info", id, event, fields);
+      if (event === "chat.finished") {
+        log("info", id, "response.sent", {
+          status: 200, route: "/v1/chat/stream", durationMs: Date.now() - startedAt
+        });
       }
     });
 
@@ -362,6 +246,107 @@ export default {
     });
   }
 };
+
+// Each response owns its decoder, completion state, and reader. In particular,
+// TextDecoder's partial UTF-8 bytes must never be shared between requests.
+export function relayChatStream(upstreamBody, clientRequestID, report = () => {}) {
+  const reader = upstreamBody.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let cancelled = false;
+
+  return new ReadableStream({
+    async start(controller) {
+      const parser = new SSEParser();
+      let sawFinish = false;
+      let sawDone = false;
+      let hasContent = false;
+
+      function emit(event) {
+        controller.enqueue(sse({ request_id: clientRequestID, delta: "", finish_reason: null, ...event }));
+      }
+
+      try {
+        while (!sawDone && !cancelled) {
+          const { done, value } = await reader.read();
+          if (cancelled) return;
+          const events = parser.feed(done ? decoder.decode() : decoder.decode(value, { stream: true }), done);
+
+          for (const payload of events) {
+            const data = payload.trim();
+            if (data === "[DONE]") {
+              sawDone = true;
+              break;
+            }
+
+            let chunk;
+            try {
+              chunk = JSON.parse(data);
+            } catch {
+              throw new Error("The provider returned an invalid streaming response.");
+            }
+            const choice = chunk.choices?.[0];
+            if (chunk.error || choice?.finish_reason === "error") {
+              const message = typeof chunk.error?.message === "string" ? chunk.error.message
+                : typeof chunk.error === "string" ? chunk.error
+                : "The provider could not finish this response.";
+              const failure = new Error(message.slice(0, 500));
+              const code = chunk.error?.code;
+              failure.retryable = [408, 429].includes(Number(code)) || (Number(code) >= 500 && Number(code) <= 599)
+                || ["server_error", "provider_error", "rate_limit_exceeded", "timeout"].includes(code);
+              throw failure;
+            }
+
+            const delta = choice?.delta?.content;
+            if (delta) {
+              if (typeof delta !== "string") throw new Error("The provider returned invalid response content.");
+              hasContent = true;
+              emit({ delta });
+            }
+            if (choice?.finish_reason) {
+              sawFinish = true;
+              emit({ finish_reason: choice.finish_reason });
+            }
+            // Accounting may follow finish_reason, with empty choices or a
+            // repeated finish_reason. Keep reading until the provider's DONE.
+            if (chunk.usage) {
+              emit({
+                usage: {
+                  prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+                  completion_tokens: chunk.usage.completion_tokens ?? 0,
+                  total_tokens: chunk.usage.total_tokens ?? 0
+                },
+                energy_wh: estimateWattHours(chunk.usage)
+              });
+            }
+          }
+          if (done) break;
+        }
+
+        if (cancelled) return;
+        decoder.decode(); // Validate any trailing partial UTF-8 sequence.
+        if (!sawFinish || !sawDone || !hasContent) {
+          throw new Error("The response ended before it was complete. Please try again.");
+        }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+        report("chat.finished", {});
+      } catch (error) {
+        if (!cancelled) {
+          report("chat.stream_failed", { message: error.message });
+          emit({ finish_reason: "error", error: error.message, retryable: error.retryable ?? true });
+          controller.close();
+        }
+      } finally {
+        try { await reader.cancel(); } catch { /* The upstream may already have failed. */ }
+        reader.releaseLock();
+      }
+    },
+    cancel(reason) {
+      cancelled = true;
+      return reader.cancel(reason);
+    }
+  });
+}
 
 async function safeText(response) {
   try {

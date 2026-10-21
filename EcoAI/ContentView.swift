@@ -4,37 +4,44 @@ import MarkdownUI
 struct ContentView: View {
     @ObservedObject var chatStore: ChatStore
     let user: AuthenticatedUser?
-    let energyUsage: EnergyUsageSnapshot
+    @ObservedObject var energyUsageStore: EnergyUsageStore
 
     @State private var selectedChatID: ChatThread.ID?
     @State private var draft = ""
-    @State private var selectedModel = AIModel.auto
-    @State private var energy = 72.0
     @State private var showAttachmentNotice = false
     @State private var chatPendingDeletion: ChatThread?
-    @State private var showSettings = false
+    private enum ActiveSheet: String, Identifiable {
+        case settings, energyLimit
+        var id: String { rawValue }
+    }
+    @State private var activeSheet: ActiveSheet?
+    @State private var showingEnergySummary = false
+    @State private var noticeOwner = UUID()
 
     @Binding var appTheme: AppTheme
     @Binding var showChatHistory: Bool
     @Binding var showEnergyUsage: Bool
     let onLogout: () -> Void
+    let onRetryStorage: (() -> Void)?
 
     init(
         chatStore: ChatStore,
         user: AuthenticatedUser? = nil,
-        energyUsage: EnergyUsageSnapshot = .zero,
+        energyUsageStore: EnergyUsageStore,
         appTheme: Binding<AppTheme> = .constant(.system),
         showChatHistory: Binding<Bool> = .constant(true),
         showEnergyUsage: Binding<Bool> = .constant(true),
-        onLogout: @escaping () -> Void = {}
+        onLogout: @escaping () -> Void = {},
+        onRetryStorage: (() -> Void)? = nil
     ) {
         self.chatStore = chatStore
         self.user = user
-        self.energyUsage = energyUsage
+        self.energyUsageStore = energyUsageStore
         _appTheme = appTheme
         _showChatHistory = showChatHistory
         _showEnergyUsage = showEnergyUsage
         self.onLogout = onLogout
+        self.onRetryStorage = onRetryStorage
     }
 
     var body: some View {
@@ -45,7 +52,7 @@ struct ContentView: View {
                     chats: chatStore.chats,
                     selectedChatID: $selectedChatID,
                     onRequestDelete: { chatPendingDeletion = $0 },
-                    onOpenSettings: { showSettings = true },
+                    onOpenSettings: { activeSheet = .settings },
                     onLogout: onLogout
                 )
                     .frame(minWidth: 200, idealWidth: 252, maxWidth: 400)
@@ -55,9 +62,15 @@ struct ContentView: View {
                 selectedChat: selectedChat,
                 messages: selectedChat?.messages ?? [],
                 draft: $draft,
-                selectedModel: $selectedModel,
                 showAttachmentNotice: $showAttachmentNotice,
                 isResponding: chatStore.isResponding(in: selectedChatID),
+                isReady: chatStore.loadState == .loaded && energyUsageStore.isReady,
+                isLimitReached: energyUsageStore.isLimitReached,
+                responseStatus: selectedChatID.flatMap { chatStore.responseStatuses[$0] },
+                onStop: { if let selectedChatID { chatStore.cancelResponse(in: selectedChatID) } },
+                onRetryLoading: onRetryStorage ?? (chatStore.loadState == .failed ? {
+                    Task { await chatStore.load() }
+                } : nil),
                 onSend: sendMessage,
                 onRequestDelete: {
                     if let selectedChat { chatPendingDeletion = selectedChat }
@@ -66,7 +79,7 @@ struct ContentView: View {
             .frame(minWidth: 480, maxWidth: .infinity)
 
             if showEnergyUsage {
-                EnergySidebar(energy: $energy, usage: energyUsage)
+                EnergySidebar(usage: energyUsageStore.snapshot, budget: energyUsageStore.budget)
                     .frame(minWidth: 200, idealWidth: 248, maxWidth: 400)
             }
         }
@@ -93,19 +106,49 @@ struct ContentView: View {
         } message: { chat in
             Text("“\(chat.title)” will be removed from your history. This action cannot be undone.")
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView(
-                user: user,
-                appTheme: $appTheme,
-                showChatHistory: $showChatHistory,
-                showEnergyUsage: $showEnergyUsage,
-                selectedModel: $selectedModel,
-                onLogout: {
-                    showSettings = false
-                    onLogout()
+        .sheet(item: $activeSheet, onDismiss: {
+            if showingEnergySummary {
+                energyUsageStore.dismissLimitNotice(owner: noticeOwner)
+                showingEnergySummary = false
+            }
+            presentEnergySummaryIfNeeded()
+        }) { sheet in
+            switch sheet {
+            case .settings:
+                SettingsView(
+                    user: user,
+                    energyUsageStore: energyUsageStore,
+                    appTheme: $appTheme,
+                    showChatHistory: $showChatHistory,
+                    showEnergyUsage: $showEnergyUsage,
+                    onLogout: {
+                        activeSheet = nil
+                        onLogout()
+                    }
+                )
+            case .energyLimit:
+                EnergyLimitReachedView(store: energyUsageStore) {
+                    energyUsageStore.dismissLimitNotice(owner: noticeOwner)
+                    activeSheet = nil
                 }
-            )
+            }
         }
+        .onChange(of: energyUsageStore.limitNotice?.id, initial: true) { _, id in
+            if id == nil, activeSheet == .energyLimit { activeSheet = nil }
+            else if activeSheet == .energyLimit { _ = energyUsageStore.claimLimitNotice(owner: noticeOwner) }
+            else { presentEnergySummaryIfNeeded() }
+        }
+        .onChange(of: chatPendingDeletion?.id) { _, id in
+            if id == nil { presentEnergySummaryIfNeeded() }
+        }
+        .onDisappear { energyUsageStore.dismissLimitNotice(owner: noticeOwner) }
+    }
+
+    private func presentEnergySummaryIfNeeded() {
+        guard activeSheet == nil, chatPendingDeletion == nil,
+              energyUsageStore.claimLimitNotice(owner: noticeOwner) else { return }
+        showingEnergySummary = true
+        activeSheet = .energyLimit
     }
 
     private var deletionAlertIsPresented: Binding<Bool> {
@@ -124,7 +167,6 @@ struct ContentView: View {
         guard !trimmed.isEmpty else { return }
         if let threadID = chatStore.sendMessage(
             trimmed,
-            model: selectedModel,
             selectedChatID: selectedChatID
         ) {
             selectedChatID = threadID
@@ -320,9 +362,13 @@ private struct ChatArea: View {
     let selectedChat: ChatThread?
     let messages: [ChatMessage]
     @Binding var draft: String
-    @Binding var selectedModel: AIModel
     @Binding var showAttachmentNotice: Bool
     let isResponding: Bool
+    let isReady: Bool
+    let isLimitReached: Bool
+    let responseStatus: String?
+    let onStop: () -> Void
+    let onRetryLoading: (() -> Void)?
     let onSend: () -> Void
     let onRequestDelete: () -> Void
 
@@ -385,6 +431,26 @@ private struct ChatArea: View {
             }
 
             VStack(spacing: 8) {
+                if let onRetryLoading {
+                    Button("Retry loading saved data", action: onRetryLoading)
+                        .font(.caption)
+                } else if !isReady {
+                    ProgressView("Loading saved data…").controlSize(.small)
+                }
+                if isLimitReached && isReady {
+                    HStack {
+                        Text("Energy limit reached. New messages are paused.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if isResponding {
+                    HStack(spacing: 8) {
+                        Text(responseStatus ?? "Generating response…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Stop", action: onStop).font(.caption)
+                    }
+                }
                 if showAttachmentNotice {
                     Text("Attachments are coming soon")
                         .font(.system(size: 11, weight: .medium))
@@ -410,35 +476,6 @@ private struct ChatArea: View {
                                 .frame(width: 28, height: 28)
                                 .background(Color.primary.opacity(0.055), in: Circle())
                         }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-
-                        Menu {
-                            ForEach(AIModel.allCases) { model in
-                                Button {
-                                    selectedModel = model
-                                } label: {
-                                    if selectedModel == model {
-                                        Label(model.displayName, systemImage: "checkmark")
-                                    } else {
-                                        Text(model.displayName)
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(selectedModel.displayName)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 8, weight: .semibold))
-                            }
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .frame(height: 25)
-                            .background(Color.primary.opacity(0.045), in: Capsule())
-                        }
-                        .menuIndicator(.hidden)
                         .buttonStyle(.plain)
 
                         Spacer()
@@ -478,7 +515,7 @@ private struct ChatArea: View {
     }
 
     private var canSend: Bool {
-        !isResponding && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isReady && !isLimitReached && !isResponding && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -566,7 +603,9 @@ struct ContentView_Previews: PreviewProvider {
                     )
                 )
             ),
-            energyUsage: .preview,
+            energyUsageStore: EnergyUsageStore(repository: EnergyUsageRepository(
+                storageURL: FileManager.default.temporaryDirectory.appendingPathComponent("ecoai-preview-budget.json")
+            )),
             appTheme: .constant(.system),
             showChatHistory: .constant(true),
             showEnergyUsage: .constant(true)

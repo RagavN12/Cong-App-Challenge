@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CloudflareWorkerURL</key>
-	<string>https://ecoai-worker.sriragav-naresh.workers.dev</string>
+	<string>https://ecoai-worker.fastflowcommons.workers.dev</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

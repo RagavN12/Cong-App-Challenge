@@ -2,6 +2,8 @@ import Auth0
 import Combine
 import Foundation
 
+extension CredentialVault: CredentialsStorage {}
+
 struct AuthenticatedUser: Equatable, Sendable {
     let id: String
     let displayName: String
@@ -67,6 +69,7 @@ final class SessionStore: ObservableObject, AccessTokenProviding {
 
     private let configuration: Auth0Configuration?
     private let credentialsManager: CredentialsManager?
+    private var restorationInProgress = false
 
     init(bundle: Bundle = .main) {
         let configuration = Auth0Configuration.load(bundle: bundle)
@@ -83,7 +86,8 @@ final class SessionStore: ObservableObject, AccessTokenProviding {
         )
         let manager = CredentialsManager(
             authentication: authentication,
-            storeKey: "ecoai.auth0.credentials"
+            storeKey: "ecoai.auth0.credentials",
+            storage: CredentialVault()
         )
         credentialsManager = manager
         isRestoringSession = manager.canRenew()
@@ -94,8 +98,13 @@ final class SessionStore: ObservableObject, AccessTokenProviding {
     }
 
     func restoreSession() async {
-        guard isRestoringSession, let manager = credentialsManager else { return }
-        defer { isRestoringSession = false }
+        guard isRestoringSession, !restorationInProgress, let manager = credentialsManager else { return }
+        // WindowGroup can start this task in more than one window.
+        restorationInProgress = true
+        defer {
+            restorationInProgress = false
+            isRestoringSession = false
+        }
 
         do {
             _ = try await manager.credentials(minTTL: 60)
