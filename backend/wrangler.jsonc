@@ -9,8 +9,20 @@
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
     }
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ecoai-friends",
+      "database_id": "00000000000000000000000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
   "vars": {
     // Non-secret Auth0 tenant info, used to verify the JWT the Mac app sends.
     // Matches EcoAI/Auth0.plist — update both together if you change tenants.

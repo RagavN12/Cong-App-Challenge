@@ -9,6 +9,7 @@ xcrun swiftc -module-cache-path "$test_dir/modules" \
   EcoAI/Models/EnergyUsageSnapshot.swift \
   EcoAI/Models/EnergyBudget.swift \
   EcoAI/Models/EnergyLimitContext.swift \
+  EcoAI/Models/FriendsModels.swift \
   EcoAI/Services/AccountStorage.swift \
   EcoAI/Services/CredentialVault.swift \
   EcoAI/Services/ResponseRetryPolicy.swift \
@@ -17,6 +18,7 @@ xcrun swiftc -module-cache-path "$test_dir/modules" \
   EcoAI/Services/CloudflareAccessPoint.swift \
   EcoAI/Stores/ChatStore.swift \
   EcoAI/Stores/EnergyUsageStore.swift \
+  EcoAI/Stores/FriendsStore.swift \
   EcoAI/Stores/AccountDataStore.swift \
   tests/RegressionTests.swift -o "$test_dir/regressions"
 "$test_dir/regressions"

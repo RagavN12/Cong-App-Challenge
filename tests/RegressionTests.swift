@@ -146,6 +146,7 @@ private struct RegressionTests {
         try await eventually("A response did not finish") { !a.chats.isResponding(in: id) }
         a.energy.setLimit(wattHours: 0.5)
         try check(a.energy.snapshot.responseCount == 1, "Usage trailer was not counted: \(a.chats.chats.last?.messages.last?.content ?? "no response")")
+        try check(a.energy.weeklySnapshot.responseCount == 1, "Weekly usage did not include this week's response")
         let aURL = AccountStorage.directory(for: "auth0|A", root: root).appendingPathComponent("chat-history.json")
         let energyAURL = AccountStorage.directory(for: "auth0|A", root: root).appendingPathComponent("energy-usage.json")
         try await eventually("A's files were not saved") {

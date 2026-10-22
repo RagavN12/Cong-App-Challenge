@@ -7,6 +7,7 @@ final class AccountDataStore: ObservableObject {
         let userID: String
         let chats: ChatStore
         let energy: EnergyUsageStore
+        let friends: FriendsStore
     }
 
     @Published private(set) var account: Account?
@@ -21,7 +22,7 @@ final class AccountDataStore: ObservableObject {
         self.storageRoot = storageRoot
     }
 
-    func activate(userID: String?) {
+    func activate(userID: String?, displayName: String = "EcoAI User") {
         guard requestedUserID != userID else { return }
         requestedUserID = userID
         generation += 1
@@ -36,11 +37,11 @@ final class AccountDataStore: ObservableObject {
             await previousAccount?.chats.flush()
             await previousAccount?.energy.flush()
             guard let self, self.generation == currentGeneration, let userID else { return }
-            self.openAccount(userID: userID)
+            self.openAccount(userID: userID, displayName: displayName)
         }
     }
 
-    private func openAccount(userID: String) {
+    private func openAccount(userID: String, displayName: String) {
         let directory = AccountStorage.directory(for: userID, root: storageRoot)
         let energy = EnergyUsageStore(repository: EnergyUsageRepository(
             storageURL: directory.appendingPathComponent("energy-usage.json")
@@ -54,6 +55,15 @@ final class AccountDataStore: ObservableObject {
             energyUsageStore: energy,
             seedChats: []
         )
-        account = Account(userID: userID, chats: chats, energy: energy)
+        account = Account(
+            userID: userID,
+            chats: chats,
+            energy: energy,
+            friends: FriendsStore(
+                accessPoint: accessPoint,
+                displayName: displayName,
+                weekStart: energy.weekStartKey
+            )
+        )
     }
 }

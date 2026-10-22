@@ -202,6 +202,74 @@ actor CloudflareAccessPoint {
         try decoder.decode(LLMStreamEvent.self, from: data)
     }
 
+    func loadFriends(displayName: String, weekStart: String) async throws -> FriendsDashboard {
+        let body = try encoder.encode(FriendProfileUpdate(displayName: displayName, weekStart: weekStart))
+        return try await sendJSON(
+            path: "v1/friends/profile",
+            method: "POST",
+            body: body,
+            as: FriendsDashboard.self
+        )
+    }
+
+    func sendFriendRequest(inviteCode: String) async throws {
+        let body = try encoder.encode(FriendInviteCode(inviteCode: inviteCode))
+        _ = try await sendJSON(
+            path: "v1/friends/requests",
+            method: "POST",
+            body: body,
+            as: FriendsActionResult.self
+        )
+    }
+
+    func acceptFriendRequest(requestID: String) async throws {
+        let body = try encoder.encode(FriendRequestAcceptance(requestID: requestID))
+        _ = try await sendJSON(
+            path: "v1/friends/requests/accept",
+            method: "POST",
+            body: body,
+            as: FriendsActionResult.self
+        )
+    }
+
+    func removeFriend(userID: String) async throws {
+        let body = try encoder.encode(FriendRemoval(userID: userID))
+        _ = try await sendJSON(
+            path: "v1/friends/remove",
+            method: "POST",
+            body: body,
+            as: FriendsActionResult.self
+        )
+    }
+
+    func publishFriendEnergy(_ update: FriendEnergyUpdate) async throws {
+        let body = try encoder.encode(update)
+        _ = try await sendJSON(
+            path: "v1/friends/usage",
+            method: "PUT",
+            body: body,
+            as: FriendsActionResult.self
+        )
+    }
+
+    private func sendJSON<Response: Decodable>(
+        path: String,
+        method: String,
+        body: Data,
+        as responseType: Response.Type
+    ) async throws -> Response {
+        var request = try await authorizedRequest(path: path, method: method, body: body)
+        request.timeoutInterval = 20
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudflareAccessError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CloudflareAccessError.server(statusCode: http.statusCode)
+        }
+        return try decoder.decode(responseType, from: data)
+    }
+
     /// Creates a Worker request with a current Auth0 access token. Used for
     /// simple JSON endpoints like GET /v1/models; the streaming endpoint
     /// builds its own request in `streamAIResponse` above.

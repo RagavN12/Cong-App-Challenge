@@ -5,13 +5,14 @@ struct ContentView: View {
     @ObservedObject var chatStore: ChatStore
     let user: AuthenticatedUser?
     @ObservedObject var energyUsageStore: EnergyUsageStore
+    let friendsStore: FriendsStore?
 
     @State private var selectedChatID: ChatThread.ID?
     @State private var draft = ""
     @State private var showAttachmentNotice = false
     @State private var chatPendingDeletion: ChatThread?
     private enum ActiveSheet: String, Identifiable {
-        case settings, energyLimit
+        case settings, energyLimit, friends
         var id: String { rawValue }
     }
     @State private var activeSheet: ActiveSheet?
@@ -28,6 +29,7 @@ struct ContentView: View {
         chatStore: ChatStore,
         user: AuthenticatedUser? = nil,
         energyUsageStore: EnergyUsageStore,
+        friendsStore: FriendsStore? = nil,
         appTheme: Binding<AppTheme> = .constant(.system),
         showChatHistory: Binding<Bool> = .constant(true),
         showEnergyUsage: Binding<Bool> = .constant(true),
@@ -37,6 +39,7 @@ struct ContentView: View {
         self.chatStore = chatStore
         self.user = user
         self.energyUsageStore = energyUsageStore
+        self.friendsStore = friendsStore
         _appTheme = appTheme
         _showChatHistory = showChatHistory
         _showEnergyUsage = showEnergyUsage
@@ -53,6 +56,7 @@ struct ContentView: View {
                     selectedChatID: $selectedChatID,
                     onRequestDelete: { chatPendingDeletion = $0 },
                     onOpenSettings: { activeSheet = .settings },
+                    onOpenFriends: { activeSheet = .friends },
                     onLogout: onLogout
                 )
                     .frame(minWidth: 200, idealWidth: 252, maxWidth: 400)
@@ -131,6 +135,10 @@ struct ContentView: View {
                     energyUsageStore.dismissLimitNotice(owner: noticeOwner)
                     activeSheet = nil
                 }
+            case .friends:
+                if let friendsStore {
+                    FriendsView(store: friendsStore, user: user, weeklyUsage: energyUsageStore.weeklySnapshot)
+                }
             }
         }
         .onChange(of: energyUsageStore.limitNotice?.id, initial: true) { _, id in
@@ -191,6 +199,7 @@ private struct LeftSidebar: View {
     @Binding var selectedChatID: ChatThread.ID?
     let onRequestDelete: (ChatThread) -> Void
     let onOpenSettings: () -> Void
+    let onOpenFriends: () -> Void
     let onLogout: () -> Void
 
     var body: some View {
@@ -249,6 +258,18 @@ private struct LeftSidebar: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 14)
+
+            Button(action: onOpenFriends) {
+                Label("Friends & leaderboard", systemImage: "person.2.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12)

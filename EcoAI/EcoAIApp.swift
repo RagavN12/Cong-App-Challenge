@@ -40,6 +40,7 @@ struct EcoAIApp: App {
                             AccountContentView(
                                 chatStore: account.chats,
                                 energyUsageStore: account.energy,
+                                friendsStore: account.friends,
                                 user: sessionStore.user,
                                 appTheme: $appTheme,
                                 showChatHistory: $showChatHistory,
@@ -74,7 +75,10 @@ struct EcoAIApp: App {
                 await sessionStore.restoreSession()
             }
             .onChange(of: sessionStore.isAuthenticated && !sessionStore.isWorking ? sessionStore.user?.id : nil, initial: true) { _, userID in
-                accountDataStore.activate(userID: userID)
+                accountDataStore.activate(
+                    userID: userID,
+                    displayName: sessionStore.user?.displayName ?? "EcoAI User"
+                )
             }
         }
         .defaultSize(width: 1200, height: 760)
@@ -93,6 +97,7 @@ struct EcoAIApp: App {
 private struct AccountContentView: View {
     @ObservedObject var chatStore: ChatStore
     @ObservedObject var energyUsageStore: EnergyUsageStore
+    @ObservedObject var friendsStore: FriendsStore
     let user: AuthenticatedUser?
     @Binding var appTheme: AppTheme
     @Binding var showChatHistory: Bool
@@ -106,6 +111,7 @@ private struct AccountContentView: View {
                 chatStore: chatStore,
                 user: user,
                 energyUsageStore: energyUsageStore,
+                friendsStore: friendsStore,
                 appTheme: $appTheme,
                 showChatHistory: $showChatHistory,
                 showEnergyUsage: $showEnergyUsage,
@@ -118,14 +124,37 @@ private struct AccountContentView: View {
                 } : nil
             )
         }
-        .task { await energyUsageStore.load() }
+        .task {
+            await energyUsageStore.load()
+            await friendsStore.load()
+            await publishWeeklyUsage()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { energyUsageStore.refreshPeriod() }
+            if phase == .active {
+                energyUsageStore.refreshPeriod()
+                Task { await publishWeeklyUsage() }
+            }
         }
-        .transientNotification(message: chatStore.lastError ?? energyUsageStore.lastError) {
+        .onChange(of: energyUsageStore.weeklySnapshot) { _, _ in
+            Task { await publishWeeklyUsage() }
+        }
+        .onChange(of: energyUsageStore.weekStartKey) { _, _ in
+            Task { await publishWeeklyUsage() }
+        }
+        .transientNotification(message: chatStore.lastError ?? energyUsageStore.lastError ?? friendsStore.lastError) {
             if chatStore.lastError != nil { chatStore.dismissError() }
-            else { energyUsageStore.dismissError() }
+            else if energyUsageStore.lastError != nil { energyUsageStore.dismissError() }
+            else { friendsStore.dismissError() }
         }
+    }
+
+    private func publishWeeklyUsage() async {
+        guard energyUsageStore.isReady else { return }
+        await friendsStore.publishEnergy(
+            weekStart: energyUsageStore.weekStartKey,
+            wattHours: energyUsageStore.weeklySnapshot.electricityWattHours.total,
+            tokens: energyUsageStore.weeklySnapshot.tokens.total
+        )
     }
 }
 

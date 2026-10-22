@@ -111,6 +111,202 @@ async function verifyAuth(request, env, id) {
   }
 }
 
+function validWeekStart(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
+function newInviteCode() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("").toUpperCase();
+}
+
+async function readJSON(request) {
+  try {
+    const body = await request.json();
+    return body && typeof body === "object" && !Array.isArray(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureFriendProfile(db, userID, displayName) {
+  const name = [...displayName.trim()].slice(0, 50).join("") || "EcoAI member";
+  let profile = await db.prepare(
+    "SELECT invite_code AS inviteCode FROM friend_profiles WHERE user_id = ?"
+  ).bind(userID).first();
+  if (profile) {
+    await db.prepare("UPDATE friend_profiles SET display_name = ? WHERE user_id = ?")
+      .bind(name, userID).run();
+    return { ...profile, displayName: name };
+  }
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await db.prepare(
+      "INSERT OR IGNORE INTO friend_profiles (user_id, display_name, invite_code) VALUES (?, ?, ?)"
+    ).bind(userID, name, newInviteCode()).run();
+    profile = await db.prepare(
+      "SELECT invite_code AS inviteCode FROM friend_profiles WHERE user_id = ?"
+    ).bind(userID).first();
+    if (profile) return { ...profile, displayName: name };
+  }
+  throw new Error("Could not allocate a unique friend invite code");
+}
+
+async function friendsDashboard(db, userID, weekStart, inviteCode) {
+  const [friendRows, requestRows] = await Promise.all([
+    db.prepare(`
+      SELECT p.user_id AS userID, p.display_name AS displayName,
+             COALESCE(u.watt_hours, 0) AS wattHours,
+             COALESCE(u.tokens, 0) AS tokens
+      FROM friend_requests r
+      JOIN friend_profiles p
+        ON p.user_id = CASE WHEN r.requester_id = ? THEN r.recipient_id ELSE r.requester_id END
+      LEFT JOIN friend_usage u ON u.user_id = p.user_id AND u.week_start = ?
+      WHERE r.status = 'accepted' AND (r.requester_id = ? OR r.recipient_id = ?)
+      ORDER BY wattHours ASC, displayName COLLATE NOCASE ASC
+    `).bind(userID, weekStart, userID, userID).all(),
+    db.prepare(`
+      SELECT r.id, p.display_name AS displayName
+      FROM friend_requests r
+      JOIN friend_profiles p ON p.user_id = r.requester_id
+      WHERE r.recipient_id = ? AND r.status = 'pending'
+      ORDER BY r.created_at ASC
+    `).bind(userID).all()
+  ]);
+  return {
+    inviteCode,
+    friends: friendRows.results ?? [],
+    incomingRequests: requestRows.results ?? []
+  };
+}
+
+async function handleFriendsRequest(request, env, claims, id) {
+  const userID = claims.sub;
+  if (typeof userID !== "string" || !userID) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+  if (!env.DB) {
+    log("error", id, "friends.database_unavailable");
+    return json({ error: "Friends are temporarily unavailable" }, 503);
+  }
+
+  const { pathname } = new URL(request.url);
+  const db = env.DB;
+
+  if (request.method === "POST" && pathname === "/v1/friends/profile") {
+    const body = await readJSON(request);
+    if (typeof body?.displayName !== "string" || body.displayName.trim().length > 200
+        || !validWeekStart(body.weekStart)) {
+      return json({ error: "Invalid friend profile" }, 422);
+    }
+    const profile = await ensureFriendProfile(db, userID, body.displayName);
+    const dashboard = await friendsDashboard(db, userID, body.weekStart, profile.inviteCode);
+    return json(dashboard);
+  }
+
+  if (request.method === "POST" && pathname === "/v1/friends/requests") {
+    const body = await readJSON(request);
+    const inviteCode = typeof body?.inviteCode === "string" ? body.inviteCode.trim().toUpperCase() : "";
+    if (!/^[A-F0-9]{12}$/.test(inviteCode)) {
+      return json({ error: "Enter a valid invite code" }, 422);
+    }
+    const recipient = await db.prepare(
+      "SELECT user_id AS userID FROM friend_profiles WHERE invite_code = ?"
+    ).bind(inviteCode).first();
+    if (!recipient) return json({ error: "Invite code not found" }, 404);
+    if (recipient.userID === userID) return json({ error: "You cannot add yourself" }, 409);
+
+    const existing = await db.prepare(`
+      SELECT status FROM friend_requests
+      WHERE (requester_id = ? AND recipient_id = ?)
+         OR (requester_id = ? AND recipient_id = ?)
+      LIMIT 1
+    `).bind(userID, recipient.userID, recipient.userID, userID).first();
+    if (existing?.status === "accepted") return json({ error: "You are already friends" }, 409);
+    if (existing?.status === "pending") {
+      const reciprocal = await db.prepare(`
+        UPDATE friend_requests SET status = 'accepted'
+        WHERE requester_id = ? AND recipient_id = ? AND status = 'pending'
+      `).bind(recipient.userID, userID).run();
+      if (reciprocal.meta.changes > 0) return json({ ok: true, matched: true });
+      return json({ error: "A friend request is already pending" }, 409);
+    }
+
+    const inserted = await db.prepare(`
+      INSERT INTO friend_requests (id, requester_id, recipient_id, status)
+      VALUES (?, ?, ?, 'pending')
+      ON CONFLICT(requester_id, recipient_id) DO NOTHING
+    `).bind(crypto.randomUUID(), userID, recipient.userID).run();
+    if (inserted.meta.changes === 0) return json({ error: "A friend request is already pending" }, 409);
+    log("info", id, "friends.request_created");
+    return json({ ok: true }, 201);
+  }
+
+  if (request.method === "POST" && pathname === "/v1/friends/requests/accept") {
+    const body = await readJSON(request);
+    if (typeof body?.requestID !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.requestID)) {
+      return json({ error: "Invalid friend request" }, 422);
+    }
+    const updated = await db.prepare(`
+      UPDATE friend_requests SET status = 'accepted'
+      WHERE id = ? AND recipient_id = ? AND status = 'pending'
+    `).bind(body.requestID, userID).run();
+    if (updated.meta.changes === 0) return json({ error: "Friend request not found" }, 404);
+    log("info", id, "friends.request_accepted");
+    return json({ ok: true });
+  }
+
+  if (request.method === "POST" && pathname === "/v1/friends/remove") {
+    const body = await readJSON(request);
+    if (typeof body?.userID !== "string" || !body.userID || body.userID.length > 255) {
+      return json({ error: "Invalid friend" }, 422);
+    }
+    const removed = await db.prepare(`
+      DELETE FROM friend_requests
+      WHERE status = 'accepted'
+        AND ((requester_id = ? AND recipient_id = ?) OR (requester_id = ? AND recipient_id = ?))
+    `).bind(userID, body.userID, body.userID, userID).run();
+    if (removed.meta.changes === 0) return json({ error: "Friend not found" }, 404);
+    log("info", id, "friends.removed");
+    return json({ ok: true });
+  }
+
+  if (request.method === "PUT" && pathname === "/v1/friends/usage") {
+    const body = await readJSON(request);
+    if (!validWeekStart(body?.weekStart)
+        || typeof body.wattHours !== "number"
+        || !Number.isFinite(body.wattHours)
+        || body.wattHours < 0
+        || body.wattHours > 1_000_000
+        || !Number.isSafeInteger(body.tokens)
+        || body.tokens < 0
+        || body.tokens > 1_000_000_000) {
+      return json({ error: "Invalid energy usage" }, 422);
+    }
+    const profile = await db.prepare("SELECT 1 AS found FROM friend_profiles WHERE user_id = ?")
+      .bind(userID).first();
+    if (!profile) return json({ error: "Friend profile not found" }, 404);
+    await db.prepare(`
+      INSERT INTO friend_usage (user_id, week_start, watt_hours, tokens, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, week_start) DO UPDATE SET
+        watt_hours = excluded.watt_hours,
+        tokens = excluded.tokens,
+        updated_at = CURRENT_TIMESTAMP
+    `).bind(userID, body.weekStart, body.wattHours, body.tokens).run();
+    return json({ ok: true });
+  }
+
+  return json({ error: "Not found" }, 404);
+}
+
 export default {
   async fetch(request, env) {
     const id = requestID();
@@ -131,6 +327,22 @@ export default {
       const models = [{ id: CHAT_MODEL }];
       log("info", id, "response.sent", { status: 200, route: "/v1/models", modelCount: models.length });
       return json({ models });
+    }
+
+    if (url.pathname.startsWith("/v1/friends/")) {
+      const claims = await verifyAuth(request, env, id);
+      if (!claims) {
+        log("warn", id, "response.sent", { status: 401, reason: "auth_failed" });
+        return json({ error: "Unauthorized" }, 401);
+      }
+      try {
+        const response = await handleFriendsRequest(request, env, claims, id);
+        log("info", id, "response.sent", { status: response.status, route: url.pathname });
+        return response;
+      } catch (error) {
+        log("error", id, "friends.request_failed", { message: error.message });
+        return json({ error: "Friends request failed" }, 500);
+      }
     }
 
     if (request.method !== "POST" || url.pathname !== "/v1/chat/stream") {

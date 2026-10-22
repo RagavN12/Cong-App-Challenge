@@ -26,6 +26,17 @@ final class EnergyUsageStore: ObservableObject {
     var progress: Double { min(max(usedFraction, 0), 1) }
     var remainingWattHours: Double { max(budget.limitWattHours - usedWattHours, 0) }
     var isLimitReached: Bool { usedWattHours >= budget.limitWattHours }
+    var weeklySnapshot: EnergyUsageSnapshot {
+        let date = now()
+        let interval = calendar.dateInterval(of: .weekOfYear, for: date)!
+        let first = dayKey(for: interval.start)
+        let today = dayKey(for: date)
+        let selected = days.keys.filter { $0 >= first && $0 <= today }.sorted()
+        return .combining(selected.compactMap { days[$0] })
+    }
+    var weekStartKey: String {
+        dayKey(for: calendar.dateInterval(of: .weekOfYear, for: now())!.start)
+    }
 
     init(
         repository: EnergyUsageRepository,

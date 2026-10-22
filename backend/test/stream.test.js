@@ -118,6 +118,32 @@ test("chat always uses the free router, ignoring client and environment model ov
     assert.match(await response.text(), /data: \[DONE\]/);
   }
   assert.equal(requests.length, 4);
+
+  const friendsEnv = {
+    AUTH0_DOMAIN: "auth.test.invalid",
+    AUTH0_AUDIENCE: "test-api",
+    DB: { prepare() { throw new Error("Unexpected database access for invalid input"); } }
+  };
+  const authorization = ["Bear", "er ", token].join("");
+  const unauthenticated = await worker.fetch(
+    new Request("https://test.invalid/v1/friends/profile", { method: "POST" }),
+    friendsEnv
+  );
+  assert.equal(unauthenticated.status, 401);
+
+  const invalidCode = await worker.fetch(new Request("https://test.invalid/v1/friends/requests", {
+    method: "POST",
+    headers: { Authorization: authorization, "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteCode: "not-a-code" })
+  }), friendsEnv);
+  assert.equal(invalidCode.status, 422);
+
+  const invalidUsage = await worker.fetch(new Request("https://test.invalid/v1/friends/usage", {
+    method: "PUT",
+    headers: { Authorization: authorization, "Content-Type": "application/json" },
+    body: JSON.stringify({ weekStart: "2026-10-19", wattHours: -1, tokens: 2 })
+  }), friendsEnv);
+  assert.equal(invalidUsage.status, 422);
   assert.ok(requests.every((request) => request.model === "openrouter/free"));
 });
 
