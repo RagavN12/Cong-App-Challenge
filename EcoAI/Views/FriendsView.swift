@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct FriendsView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: FriendsStore
     let user: AuthenticatedUser?
     let weeklyUsage: EnergyUsageSnapshot
@@ -47,6 +48,10 @@ struct FriendsView: View {
                 .buttonStyle(.borderless)
                 .disabled(store.isLoading || store.isWorking)
                 .help("Refresh friends")
+                Button("Close", systemImage: "xmark") {
+                    dismiss()
+                }
+                .buttonStyle(.borderless)
             }
             .padding(20)
 
