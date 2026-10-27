@@ -48,10 +48,17 @@ struct FriendsView: View {
                 .buttonStyle(.borderless)
                 .disabled(store.isLoading || store.isWorking)
                 .help("Refresh friends")
-                Button("Close", systemImage: "xmark") {
+                Button {
                     dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(Color.primary.opacity(0.05), in: Circle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close leaderboard")
             }
             .padding(20)
 

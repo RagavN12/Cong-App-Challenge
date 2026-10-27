@@ -1,4 +1,3 @@
-// Incremental SSE framing: line endings and UTF-8 chunks need not align.
 export class SSEParser {
   buffer = "";
   data = [];

@@ -7,14 +7,7 @@ const CHAT_MODEL = "openrouter/free";
 
 const WATT_HOURS_PER_1K_TOKENS = 0.4;
 
-// --- Structured logging -----------------------------------------------
-// Cloudflare's Observability / Workers Logs feature (enabled via
-// "observability": { "enabled": true } in wrangler.jsonc) automatically
-// ingests everything written to console.*, and lets you filter/search on
-// fields inside a JSON-formatted log line in the dashboard. Plain string
-// logs still show up, but you can't query them by field — so every log
-// line here is one JSON object with a consistent shape:
-//   { level, requestId, event, ...extra fields }
+
 function log(level, requestId, event, fields = {}) {
   const entry = {
     level,
@@ -64,10 +57,7 @@ function getJWKS(domain) {
   return jwks;
 }
 
-// Verifies the Auth0 access token the Swift app attaches as a Bearer token.
-// Returns the decoded claims on success, or null if missing/invalid.
-// Every branch logs a structured event so a 401 is traceable in Workers Logs
-// without needing `wrangler tail` open at the exact moment it happened.
+// Verifies the auth0 token
 async function verifyAuth(request, env, id) {
   const header = request.headers.get("Authorization");
 
@@ -518,8 +508,8 @@ export function relayChatStream(upstreamBody, clientRequestID, report = () => {}
               sawFinish = true;
               emit({ finish_reason: choice.finish_reason });
             }
-            // Accounting may follow finish_reason, with empty choices or a
-            // repeated finish_reason. Keep reading until the provider's DONE.
+            
+            // Keep reading until done
             if (chunk.usage) {
               emit({
                 usage: {
@@ -549,7 +539,7 @@ export function relayChatStream(upstreamBody, clientRequestID, report = () => {}
           controller.close();
         }
       } finally {
-        try { await reader.cancel(); } catch { /* The upstream may already have failed. */ }
+        try { await reader.cancel(); } catch { /*potential failure?*/ }
         reader.releaseLock();
       }
     },
